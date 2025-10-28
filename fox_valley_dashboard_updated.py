@@ -48,13 +48,16 @@ elif selected_section == "Notes":
     st.subheader("📝 Tactical Notes")
     st.text_area("Enter your thoughts here:", height=200)
 
-elif selected_section == "Weekly AI Summary":
-    st.subheader("📅 Weekly AI Summary")
-    st.info("Based on your portfolio performance and screen uploads, here's your summary:")
-    st.markdown("- NVDA leading growth with solid gains.
-- XPER near breakeven, monitor for news.
-- IBKR growth accelerating — reevaluate position sizing.
-- Watchlist candidates AU and DINO remain volatile.")
+elif selected_section == "Notes":
+    st.subheader("📝 Tactical Notes")
+    st.text_area("Enter your thoughts here:", height=200)
+    st.markdown("""
+    ### 🧠 Weekly AI Summary
+    - NVDA leading growth with solid gains.
+    - VYX and DINO triggered tactical buys.
+    - AU remains on watchlist amid gold sector softness.
+    - Total portfolio value as of last close: **$161,969.06**
+    """)
 
 elif selected_section == "Spreadsheet Import":
     st.subheader("📂 Import Spreadsheet")
