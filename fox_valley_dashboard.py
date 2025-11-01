@@ -1,76 +1,69 @@
+# ===============================
+# 🧭 FOX VALLEY DASHBOARD v11.01.2025
+# Interactive Portfolio Command Console
+# ===============================
 
-import streamlit as st
 import pandas as pd
-import datetime
-import altair as alt
+import streamlit as st
+import plotly.express as px
 
-st.set_page_config(page_title="Fox Valley Technical Console", layout="wide")
+st.set_page_config(page_title="Fox Valley Dashboard", layout="wide")
 
-st.title("🦊 Fox Valley Technical Console")
-st.markdown("This dashboard is your command center for tactical stock screening, portfolio review, and real-time decisions.")
+PORTFOLIO_FILE = "data/portfolio_data.csv"
+TOTAL_PORTFOLIO_VALUE = 162167.42
+CASH_AVAILABLE = 27694.93
 
-# Sidebar Navigation
-st.sidebar.header("🧭 Navigation")
-selected_section = st.sidebar.radio("Go to:", [
-    "Portfolio Overview", "Watchlist", "Zacks Screen Upload",
-    "Notes", "Weekly AI Summary", "Spreadsheet Import", "Visual Charts"
-])
+@st.cache_data
+def load_portfolio():
+    df = pd.read_csv(PORTFOLIO_FILE)
+    df["GainLoss%"] = df["GainLoss%"].astype(str)
+    return df
 
-# Dummy Portfolio Data - replace with live connection later
-portfolio = pd.DataFrame({
-    "Ticker": ["NVDA", "IBKR", "XPER"],
-    "Shares": [295, 100, 750],
-    "Cost Basis": [176.71, 63.00, 6.25],
-    "Current Price": [476.00, 85.00, 6.60]
-})
-portfolio["Market Value"] = portfolio["Shares"] * portfolio["Current Price"]
-portfolio["Unrealized Gain/Loss"] = portfolio["Market Value"] - (portfolio["Shares"] * portfolio["Cost Basis"])
+portfolio = load_portfolio()
 
-# Section Logic
-if selected_section == "Portfolio Overview":
-    st.subheader("📊 Current Holdings")
-    st.dataframe(portfolio, use_container_width=True)
-    st.metric("Total Market Value", f"${portfolio['Market Value'].sum():,.2f}")
-    st.metric("Total Gain/Loss", f"${portfolio['Unrealized Gain/Loss'].sum():,.2f}")
+col1, col2, col3 = st.columns(3)
+col1.metric("Total Account Value", f"${TOTAL_PORTFOLIO_VALUE:,.2f}")
+col2.metric("Cash Available", f"${CASH_AVAILABLE:,.2f}")
+col3.metric("Number of Holdings", len(portfolio))
 
-elif selected_section == "Watchlist":
-    st.subheader("👀 Stocks On Watch")
-    st.write("AU, DINO, VYX, others...")
+st.markdown("---")
 
-elif selected_section == "Zacks Screen Upload":
-    st.subheader("📁 Upload Zacks Custom Screens")
-    uploaded_file = st.file_uploader("Upload a Zacks CSV", type=["csv"])
-    if uploaded_file:
-        df = pd.read_csv(uploaded_file)
-        st.dataframe(df)
+st.sidebar.header("Filters & Controls")
+accounts = st.sidebar.multiselect("Select Accounts", options=portfolio["Account"].unique(), default=portfolio["Account"].unique())
+gain_filter = st.sidebar.slider("Gain/Loss % Range", -50, 50, (-50, 50))
+min_value = st.sidebar.number_input("Min Position Value ($)", 0, 100000, 0)
 
-elif selected_section == "Notes":
-    st.subheader("📝 Tactical Notes")
-    st.text_area("Enter your thoughts here:", height=200)
+filtered_df = portfolio.copy()
+filtered_df = filtered_df[filtered_df["Account"].isin(accounts)]
 
-elif selected_section == "Notes":
-    st.subheader("📝 Tactical Notes")
-    st.text_area("Enter your thoughts here:", height=200)
-    st.markdown("""
-    ### 🧠 Weekly AI Summary
-    - NVDA leading growth with solid gains.
-    - VYX and DINO triggered tactical buys.
-    - AU remains on watchlist amid gold sector softness.
-    - Total portfolio value as of last close: **$161,969.06**
-    """)
+def parse_percent(val):
+    try:
+        return float(val.replace("%", "").replace("+", "").replace("-", "")) * (-1 if "-" in val else 1)
+    except:
+        return 0.0
 
-elif selected_section == "Spreadsheet Import":
-    st.subheader("📂 Import Spreadsheet")
-    excel_file = st.file_uploader("Upload Excel spreadsheet", type=["xlsx"])
-    if excel_file:
-        df = pd.read_excel(excel_file)
-        st.dataframe(df)
+filtered_df["GainNum"] = filtered_df["GainLoss%"].apply(parse_percent)
+filtered_df = filtered_df[
+    (filtered_df["GainNum"] >= gain_filter[0]) &
+    (filtered_df["GainNum"] <= gain_filter[1]) &
+    (filtered_df["Value"] >= min_value)
+]
 
-elif selected_section == "Visual Charts":
-    st.subheader("📈 Performance Visualization")
-    base = alt.Chart(portfolio).encode(x="Ticker", y="Market Value", tooltip=["Market Value", "Unrealized Gain/Loss"])
-    st.altair_chart(base.mark_bar(color="orange").properties(title="Market Value by Ticker"), use_container_width=True)
-    st.altair_chart(base.mark_line(color="blue").encode(y="Unrealized Gain/Loss").properties(title="Unrealized Gain/Loss by Ticker"), use_container_width=True)
+st.subheader("Portfolio Overview")
+st.dataframe(filtered_df, use_container_width=True)
 
-# Sidebar Timestamp
-st.sidebar.markdown(f"📅 Date: {datetime.date.today().strftime('%B %d, %Y')}")
+tab1, tab2 = st.tabs(["📊 Allocation Chart", "📈 Gain/Loss Bar Chart"])
+
+with tab1:
+    alloc = filtered_df.groupby("Ticker")["Value"].sum().reset_index()
+    fig = px.pie(alloc, values="Value", names="Ticker", title="Portfolio Allocation by Holding")
+    st.plotly_chart(fig, use_container_width=True)
+
+with tab2:
+    fig2 = px.bar(filtered_df, x="Ticker", y="GainNum", color="GainNum", text="GainLoss%",
+                  title="Gain/Loss % by Holding", color_continuous_scale="RdYlGn")
+    st.plotly_chart(fig2, use_container_width=True)
+
+st.markdown("---")
+st.caption("Zacks Screens: Growth 1 | Growth 2 | Defensive Dividend — 10/31/2025 Uploads Synced")
+st.caption("Automation Schedule: Sunday–Friday Tactical Execution • Next Run: Sunday 11/02/2025")
