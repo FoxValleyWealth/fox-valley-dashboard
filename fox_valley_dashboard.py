@@ -1,122 +1,130 @@
-# ===============================
-# 🧭 FOX VALLEY DASHBOARD v11.02.2025
-# Self-Correcting Portfolio Console
-# ===============================
 
-import pandas as pd
+# ============================================
+# FOX VALLEY TACTICAL DASHBOARD v3 – Nov 2025
+# Zacks Tactical Integration Edition (Dark Mode)
+# ============================================
+
 import streamlit as st
+import pandas as pd
 import plotly.express as px
-import re
+import io
 
-st.set_page_config(page_title="Fox Valley Dashboard", layout="wide")
+st.set_page_config(page_title="Fox Valley Tactical Dashboard v3",
+                   layout="wide",
+                   initial_sidebar_state="expanded")
 
-PORTFOLIO_FILE = "data/portfolio_data.csv"
-TOTAL_PORTFOLIO_VALUE = 162167.42
-CASH_AVAILABLE = 27694.93
+# --- DARK MODE STYLE ---
+st.markdown("""
+    <style>
+        body {background-color:#0e1117;color:#FAFAFA;}
+        [data-testid="stHeader"] {background-color:#0e1117;}
+        [data-testid="stSidebar"] {background-color:#111318;}
+        table {color:#FAFAFA;}
+        .rank1 {background-color:#004d00 !important;} /* 🟩 */
+        .rank2 {background-color:#665c00 !important;} /* 🟨 */
+        .rank3 {background-color:#663300 !important;} /* 🟧 */
+    </style>
+""", unsafe_allow_html=True)
 
-# -------------------------------
-# LOAD DATA SAFELY
-# -------------------------------
+# ---------- LOAD PORTFOLIO ----------
 @st.cache_data
 def load_portfolio():
-    df = pd.read_csv(PORTFOLIO_FILE)
-    # Normalize headers: strip spaces, lower-case, remove punctuation
-    df.columns = (
-        df.columns.str.strip()
-        .str.replace(r"[^0-9A-Za-z%]+", "", regex=True)
-        .str.replace("%", "Percent")
-    )
-
-    # Smart column renaming
-    rename_map = {}
-    for col in df.columns:
-        c = col.lower()
-        if "ticker" in c: rename_map[col] = "Ticker"
-        elif "company" in c or "description" in c: rename_map[col] = "Company"
-        elif "share" in c or "qty" in c or "quantity" in c: rename_map[col] = "Shares"
-        elif "lastprice" in c or "price" in c: rename_map[col] = "LastPrice"
-        elif "value" in c and "gain" not in c: rename_map[col] = "Value"
-        elif "gainloss" in c and ("$" in c or "dollar" in c): rename_map[col] = "GainLoss$"
-        elif "gainloss" in c and ("percent" in c or "%" in c): rename_map[col] = "GainLoss%"
-        elif "cost" in c: rename_map[col] = "CostBasis"
-        elif "account" in c: rename_map[col] = "Account"
-
-    df.rename(columns=rename_map, inplace=True)
-
-    # Fill missing expected columns
-    for expected in ["Ticker","Company","Shares","LastPrice","Value","GainLoss$","GainLoss%","CostBasis","Account"]:
-        if expected not in df.columns:
-            df[expected] = None
-
-    # Clean numeric columns
-    for c in ["Value","GainLoss$","CostBasis","Shares","LastPrice"]:
-        try:
-            df[c] = pd.to_numeric(df[c].astype(str).str.replace(r"[^0-9.\-]", "", regex=True), errors="coerce")
-        except Exception:
-            pass
-
-    df["GainLoss%"] = df["GainLoss%"].astype(str).fillna("0")
+    df = pd.read_csv("data/portfolio_data.csv")
+    df["GainLoss%"] = pd.to_numeric(df["GainLoss%"], errors="coerce")
     return df
 
 portfolio = load_portfolio()
+total_value = portfolio["Value"].astype(float).sum()
 
-# -------------------------------
-# METRICS HEADER
-# -------------------------------
-c1, c2, c3 = st.columns(3)
-c1.metric("Total Account Value", f"${TOTAL_PORTFOLIO_VALUE:,.2f}")
-c2.metric("Cash Available", f"${CASH_AVAILABLE:,.2f}")
-c3.metric("Holdings", len(portfolio))
+# ---------- DASHBOARD HEADER ----------
+st.title("🧭 Fox Valley Tactical Dashboard v3")
+col1, col2 = st.columns(2)
+col1.metric("Total Account Value", f"${total_value:,.2f}")
+cash_row = portfolio[portfolio["Ticker"].str.contains("SPAXX", na=False)]
+cash_value = cash_row["Value"].astype(float).sum()
+col2.metric("Cash – SPAXX (Money Market)", f"${cash_value:,.2f}")
 
 st.markdown("---")
 
-# -------------------------------
-# SIDEBAR FILTERS
-# -------------------------------
-st.sidebar.header("Filters & Controls")
-accounts = st.sidebar.multiselect(
-    "Select Accounts",
-    options=sorted(portfolio["Account"].dropna().unique()),
-    default=sorted(portfolio["Account"].dropna().unique())
-)
-gain_filter = st.sidebar.slider("Gain/Loss % Range", -50, 50, (-50, 50))
-min_value = st.sidebar.number_input("Min Position Value ($)", 0, 100000, 0)
+# ---------- SIDEBAR ZACKS UPLOADS ----------
+st.sidebar.header("📈 Upload Zacks Screens")
+g1_file = st.sidebar.file_uploader("Upload Growth 1 CSV", type="csv")
+g2_file = st.sidebar.file_uploader("Upload Growth 2 CSV", type="csv")
+dd_file = st.sidebar.file_uploader("Upload Defensive Dividend CSV", type="csv")
 
-df = portfolio.copy()
-df = df[df["Account"].isin(accounts)]
+# ---------- UTILITIES ----------
+def read_zacks(file):
+    df = pd.read_csv(file)
+    cols = [c for c in df.columns if "ticker" in c.lower() or "symbol" in c.lower()]
+    if cols:
+        df.rename(columns={cols[0]:"Ticker"}, inplace=True)
+    if "Zacks Rank" not in df.columns:
+        rank_cols = [c for c in df.columns if "rank" in c.lower()]
+        if rank_cols: df.rename(columns={rank_cols[0]:"Zacks Rank"}, inplace=True)
+    return df[["Ticker","Zacks Rank"]] if "Ticker" in df.columns else pd.DataFrame()
 
-def parse_percent(val):
+def highlight_rank(rank):
     try:
-        val = str(val)
-        return float(re.findall(r"-?\d+\.?\d*", val)[0])
-    except:
-        return 0.0
+        r = int(rank)
+        if r==1: return "rank1"
+        elif r==2: return "rank2"
+        else: return "rank3"
+    except: return ""
 
-df["GainNum"] = df["GainLoss%"].apply(parse_percent)
-df = df[(df["GainNum"] >= gain_filter[0]) & (df["GainNum"] <= gain_filter[1])]
-df = df[df["Value"].fillna(0) >= min_value]
+def cross_match(zdf, pf):
+    if zdf.empty: return pd.DataFrame()
+    merged = zdf.merge(pf[["Ticker"]], on="Ticker", how="left", indicator=True)
+    merged["Held?"] = merged["_merge"].map({"both":"✔ Held","left_only":"🟢 Candidate"})
+    merged.drop(columns="_merge", inplace=True)
+    return merged
 
-# -------------------------------
-# MAIN TABLE
-# -------------------------------
-st.subheader("Portfolio Overview")
-st.dataframe(df, use_container_width=True)
+# ---------- MAIN TABS ----------
+tabs = st.tabs(["💼 Portfolio Overview","📊 Growth 1","📊 Growth 2","💰 Defensive Dividend"])
 
-# -------------------------------
-# VISUALS
-# -------------------------------
-tab1, tab2 = st.tabs(["📊 Allocation Chart", "📈 Gain/Loss Bar Chart"])
+# --- Portfolio Overview ---
+with tabs[0]:
+    st.subheader("Qualified Plan Holdings")
+    st.dataframe(portfolio, use_container_width=True)
 
-with tab1:
-    alloc = df.groupby("Ticker", dropna=True)["Value"].sum().reset_index()
-    fig = px.pie(alloc, values="Value", names="Ticker", title="Portfolio Allocation by Holding")
-    st.plotly_chart(fig, use_container_width=True)
+    fig1 = px.pie(portfolio, values="Value", names="Ticker",
+                  title="Portfolio Allocation", hole=0.3)
+    st.plotly_chart(fig1, use_container_width=True)
 
-with tab2:
-    fig2 = px.bar(df, x="Ticker", y="GainNum", color="GainNum", text="GainLoss%",
-                  title="Gain/Loss % by Holding", color_continuous_scale="RdYlGn")
-    st.plotly_chart(fig2, use_container_width=True)
+# --- Growth 1 ---
+with tabs[1]:
+    st.subheader("Zacks Growth 1 Cross-Match")
+    if g1_file:
+        g1 = read_zacks(g1_file)
+        g1 = cross_match(g1, portfolio)
+        st.dataframe(g1.style.applymap(lambda x: "color:#FFF;", subset=["Ticker"])
+                          .apply(lambda s: [highlight_rank(v) for v in s], subset=["Zacks Rank"]),
+                     use_container_width=True)
+    else:
+        st.info("Upload Growth 1 CSV in sidebar to view results.")
+
+# --- Growth 2 ---
+with tabs[2]:
+    st.subheader("Zacks Growth 2 Cross-Match")
+    if g2_file:
+        g2 = read_zacks(g2_file)
+        g2 = cross_match(g2, portfolio)
+        st.dataframe(g2.style.applymap(lambda x: "color:#FFF;", subset=["Ticker"])
+                          .apply(lambda s: [highlight_rank(v) for v in s], subset=["Zacks Rank"]),
+                     use_container_width=True)
+    else:
+        st.info("Upload Growth 2 CSV in sidebar to view results.")
+
+# --- Defensive Dividend ---
+with tabs[3]:
+    st.subheader("Zacks Defensive Dividend Cross-Match")
+    if dd_file:
+        dd = read_zacks(dd_file)
+        dd = cross_match(dd, portfolio)
+        st.dataframe(dd.style.applymap(lambda x: "color:#FFF;", subset=["Ticker"])
+                          .apply(lambda s: [highlight_rank(v) for v in s], subset=["Zacks Rank"]),
+                     use_container_width=True)
+    else:
+        st.info("Upload Defensive Dividend CSV in sidebar to view results.")
 
 st.markdown("---")
-st.caption("Zacks Screens: Growth 1 | Growth 2 | Defensive Dividend — 10/31/2025 Uploads Synced")
-st.caption("Automation Schedule: Sunday–Friday Tactical Execution • Next Run: Sunday 11/02/2025")
+st.caption("Automation hook ready for Sunday 07:00 CST tactical summary.")
