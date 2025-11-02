@@ -47,10 +47,21 @@ col2.metric("Cash – SPAXX (Money Market)", f"${cash_value:,.2f}")
 st.markdown("---")
 
 # ---------- SIDEBAR ZACKS UPLOADS ----------
-st.sidebar.header("📈 Upload Zacks Screens")
-g1_file = st.sidebar.file_uploader("Upload Growth 1 CSV", type="csv")
-g2_file = st.sidebar.file_uploader("Upload Growth 2 CSV", type="csv")
-dd_file = st.sidebar.file_uploader("Upload Defensive Dividend CSV", type="csv")
+# ---------- LOAD ZACKS SCREENS FROM /data ----------
+st.sidebar.header("📈 Zacks Screens – Auto-Loaded from Repository")
+
+g1_path = "data/zacks_custom_screen_2025-11-02_Growth1.csv"
+g2_path = "data/zacks_custom_screen_2025-11-02_Growth2.csv"
+dd_path = "data/zacks_custom_screen_2025-11-02_DefensiveDividend.csv"
+
+try:
+    g1 = pd.read_csv(g1_path)
+    g2 = pd.read_csv(g2_path)
+    dd = pd.read_csv(dd_path)
+    st.sidebar.success("✅ Zacks files loaded automatically")
+except Exception as e:
+    st.sidebar.error(f"⚠️ Could not load Zacks screens: {e}")
+    g1 = g2 = dd = pd.DataFrame()
 
 # ---------- UTILITIES ----------
 def read_zacks(file):
