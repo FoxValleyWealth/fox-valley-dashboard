@@ -6,7 +6,6 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import io
 
 st.set_page_config(
     page_title="Fox Valley Tactical Dashboard v3",
@@ -31,38 +30,30 @@ st.markdown("""
 @st.cache_data
 def load_portfolio():
     df = pd.read_csv("data/portfolio_data.csv")
-    # normalize columns
-    if "Value" in df.columns:
-        df["Value"] = pd.to_numeric(df["Value"], errors="coerce").fillna(0)
-    if "GainLoss%" in df.columns:
-        df["GainLoss%"] = pd.to_numeric(df["GainLoss%"], errors="coerce")
+    df["GainLoss%"] = pd.to_numeric(df["GainLoss%"], errors="coerce")
     return df
 
 portfolio = load_portfolio()
-total_value = portfolio["Value"].sum()
+total_value = portfolio["Value"].astype(float).sum()
 
 # ---------- DASHBOARD HEADER ----------
 st.title("🧭 Fox Valley Tactical Dashboard v3")
 col1, col2 = st.columns(2)
 col1.metric("Total Account Value", f"${total_value:,.2f}")
-
-cash_row = portfolio[portfolio["Ticker"].astype(str).str.contains("SPAXX", na=False)]
-cash_value = cash_row["Value"].sum() if not cash_row.empty else 0
+cash_row = portfolio[portfolio["Ticker"].str.contains("SPAXX", na=False)]
+cash_value = cash_row["Value"].astype(float).sum()
 col2.metric("Cash – SPAXX (Money Market)", f"${cash_value:,.2f}")
 
 st.markdown("---")
 
-# ---------- LOAD ZACKS SCREENS FROM /data ----------
-st.sidebar.header("📈 Zacks Screens – Auto-Loaded from Repository")
-
+# ---------- LOAD ZACKS SCREENS ----------
 G1_PATH = "data/zacks_custom_screen_2025-11-02_Growth1.csv"
 G2_PATH = "data/zacks_custom_screen_2025-11-02_Growth2.csv"
 DD_PATH = "data/zacks_custom_screen_2025-11-02_DefensiveDividend.csv"
 
 def safe_read(path):
     try:
-        df = pd.read_csv(path)
-        return df
+        return pd.read_csv(path)
     except Exception:
         return pd.DataFrame()
 
@@ -77,42 +68,22 @@ else:
 
 # ---------- UTILITIES ----------
 def normalize_zacks(df: pd.DataFrame) -> pd.DataFrame:
-    """make sure we have Ticker + Zacks Rank columns"""
     if df.empty:
         return df
-
-    # Find ticker-like column
     ticker_cols = [c for c in df.columns if "ticker" in c.lower() or "symbol" in c.lower()]
     if ticker_cols:
         df = df.rename(columns={ticker_cols[0]: "Ticker"})
-
-    # Find rank-like column
     if "Zacks Rank" not in df.columns:
         rank_cols = [c for c in df.columns if "rank" in c.lower()]
         if rank_cols:
             df = df.rename(columns={rank_cols[0]: "Zacks Rank"})
-
-    # keep only the columns we need
     keep = []
     if "Ticker" in df.columns:
         keep.append("Ticker")
     if "Zacks Rank" in df.columns:
         keep.append("Zacks Rank")
     df = df[keep].copy()
-
     return df
-
-def highlight_rank_class(rank_val: str):
-    try:
-        r = int(str(rank_val).strip())
-        if r == 1:
-            return "rank1"
-        elif r == 2:
-            return "rank2"
-        else:
-            return "rank3"
-    except:
-        return ""
 
 def cross_match(zacks_df: pd.DataFrame, portfolio_df: pd.DataFrame) -> pd.DataFrame:
     if zacks_df.empty:
@@ -125,18 +96,13 @@ def cross_match(zacks_df: pd.DataFrame, portfolio_df: pd.DataFrame) -> pd.DataFr
     merged.drop(columns=["_merge"], inplace=True)
     return merged
 
-# normalize zacks
+# ---------- NORMALIZE ZACKS ----------
 g1 = normalize_zacks(g1_raw)
 g2 = normalize_zacks(g2_raw)
 dd = normalize_zacks(dd_raw)
 
 # ---------- MAIN TABS ----------
-tabs = st.tabs([
-    "💼 Portfolio Overview",
-    "📊 Growth 1",
-    "📊 Growth 2",
-    "💰 Defensive Dividend"
-])
+tabs = st.tabs(["💼 Portfolio Overview", "📊 Growth 1", "📊 Growth 2", "💰 Defensive Dividend"])
 
 # --- Portfolio Overview ---
 with tabs[0]:
@@ -144,13 +110,8 @@ with tabs[0]:
     st.dataframe(portfolio, use_container_width=True)
 
     if not portfolio.empty:
-        fig1 = px.pie(
-            portfolio,
-            values="Value",
-            names="Ticker",
-            title="Portfolio Allocation",
-            hole=0.3
-        )
+        fig1 = px.pie(portfolio, values="Value", names="Ticker",
+                      title="Portfolio Allocation", hole=0.3)
         st.plotly_chart(fig1, use_container_width=True)
     else:
         st.info("No portfolio data found in /data/portfolio_data.csv")
@@ -160,22 +121,17 @@ with tabs[1]:
     st.subheader("Zacks Growth 1 Cross-Match")
     if not g1.empty:
         g1_matched = cross_match(g1, portfolio)
-
-        # style
-        def style_growth1(row):
-            css = []
-            for v in row:
-                css.append("")
-            return css
-
         st.dataframe(
-            g1_matched.style.apply(
-                lambda col: [highlight_rank_class(v) for v in col], subset=["Zacks Rank"]
-            ),
+            g1_matched.style.map(
+                lambda val: "background-color: #004d00" if str(val) == "1"
+                else "background-color: #665c00" if str(val) == "2"
+                else "background-color: #663300" if str(val) == "3"
+                else ""
+            , subset=["Zacks Rank"]),
             use_container_width=True
         )
     else:
-        st.info("No Growth 1 data found in /data/zacks_custom_screen_2025-11-02_Growth1.csv")
+        st.info("Zacks Growth 1 screen not found or empty in /data.")
 
 # --- Growth 2 ---
 with tabs[2]:
@@ -183,13 +139,16 @@ with tabs[2]:
     if not g2.empty:
         g2_matched = cross_match(g2, portfolio)
         st.dataframe(
-            g2_matched.style.apply(
-                lambda col: [highlight_rank_class(v) for v in col], subset=["Zacks Rank"]
-            ),
+            g2_matched.style.map(
+                lambda val: "background-color: #004d00" if str(val) == "1"
+                else "background-color: #665c00" if str(val) == "2"
+                else "background-color: #663300" if str(val) == "3"
+                else ""
+            , subset=["Zacks Rank"]),
             use_container_width=True
         )
     else:
-        st.info("No Growth 2 data found in /data/zacks_custom_screen_2025-11-02_Growth2.csv")
+        st.info("Zacks Growth 2 screen not found or empty in /data.")
 
 # --- Defensive Dividend ---
 with tabs[3]:
@@ -197,13 +156,16 @@ with tabs[3]:
     if not dd.empty:
         dd_matched = cross_match(dd, portfolio)
         st.dataframe(
-            dd_matched.style.apply(
-                lambda col: [highlight_rank_class(v) for v in col], subset=["Zacks Rank"]
-            ),
+            dd_matched.style.map(
+                lambda val: "background-color: #004d00" if str(val) == "1"
+                else "background-color: #665c00" if str(val) == "2"
+                else "background-color: #663300" if str(val) == "3"
+                else ""
+            , subset=["Zacks Rank"]),
             use_container_width=True
         )
     else:
-        st.info("No Defensive Dividend data found in /data/zacks_custom_screen_2025-11-02_DefensiveDividend.csv")
+        st.info("Zacks Defensive Dividend screen not found or empty in /data.")
 
 st.markdown("---")
 st.caption("Automation hook ready for Sunday 07:00 CST tactical summary.")
