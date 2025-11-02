@@ -1,19 +1,22 @@
 # ============================================
 # FOX VALLEY TACTICAL DASHBOARD v3 – Nov 2025
-# Zacks Tactical Integration Edition (Dark Mode)
+# Zacks Tactical Integration Edition + Automation (Dark Mode)
 # ============================================
 
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import datetime
+from pathlib import Path
 
+# ---------- PAGE CONFIG ----------
 st.set_page_config(
     page_title="Fox Valley Tactical Dashboard v3",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- DARK MODE STYLE ---
+# ---------- DARK MODE ----------
 st.markdown("""
     <style>
         body {background-color:#0e1117;color:#FAFAFA;}
@@ -36,16 +39,14 @@ def load_portfolio():
 
 portfolio = load_portfolio()
 total_value = portfolio["Value"].sum()
+cash_row = portfolio[portfolio["Ticker"].str.contains("SPAXX", na=False)]
+cash_value = cash_row["Value"].sum()
 
-# ---------- DASHBOARD HEADER ----------
+# ---------- HEADER ----------
 st.title("🧭 Fox Valley Tactical Dashboard v3")
 col1, col2 = st.columns(2)
 col1.metric("Total Account Value", f"${total_value:,.2f}")
-
-cash_row = portfolio[portfolio["Ticker"].str.contains("SPAXX", na=False)]
-cash_value = cash_row["Value"].sum()
 col2.metric("Cash – SPAXX (Money Market)", f"${cash_value:,.2f}")
-
 st.markdown("---")
 
 # ---------- LOAD ZACKS SCREENS ----------
@@ -111,13 +112,8 @@ with tabs[0]:
     st.dataframe(portfolio, use_container_width=True)
 
     if not portfolio.empty:
-        fig1 = px.pie(
-            portfolio,
-            values="Value",
-            names="Ticker",
-            title="Portfolio Allocation",
-            hole=0.3
-        )
+        fig1 = px.pie(portfolio, values="Value", names="Ticker",
+                      title="Portfolio Allocation", hole=0.3)
         st.plotly_chart(fig1, use_container_width=True)
     else:
         st.info("No portfolio data found in /data/portfolio_data.csv")
@@ -184,7 +180,6 @@ with tabs[4]:
     st.markdown("### 📈 Portfolio Performance Overview")
     try:
         portfolio["GainLoss%"] = pd.to_numeric(portfolio["GainLoss%"], errors="coerce")
-        total_value = portfolio["Value"].sum()
         avg_gain = portfolio["GainLoss%"].mean()
 
         st.metric("Total Portfolio Value", f"${total_value:,.2f}")
@@ -231,10 +226,8 @@ with tabs[4]:
     # --- Cash & Buy Power ---
     st.markdown("---")
     st.markdown("### 💰 Cash and Buy Power")
-    cash_total = cash_value
-    cash_percent = (cash_total / total_value) * 100 if total_value > 0 else 0
-
-    st.metric("Cash (SPAXX)", f"${cash_total:,.2f}")
+    cash_percent = (cash_value / total_value) * 100 if total_value > 0 else 0
+    st.metric("Cash (SPAXX)", f"${cash_value:,.2f}")
     st.metric("Cash as % of Account", f"{cash_percent:.2f}%")
 
     if cash_percent < 5:
@@ -244,7 +237,7 @@ with tabs[4]:
     else:
         st.success("🟢 Cash allocation balanced for tactical flexibility.")
 
-    # --- Action Recommendations ---
+    # --- Tactical Guidance ---
     st.markdown("---")
     st.markdown("### 🎯 Tactical Action Plan")
     st.markdown("""
@@ -252,5 +245,32 @@ with tabs[4]:
     - 🟠 **Review / Trim:** Held stocks that have lost Zacks Rank #1 status.
     - ⚪ **Hold / Monitor:** Current holdings still Zacks Rank #1.
     """)
-
     st.caption("Next tactical update scheduled for Sunday 07:00 CST.")
+
+# ============================================
+# PHASE 3 – AUTOMATED SUNDAY SUMMARY GENERATOR
+# ============================================
+def generate_tactical_report():
+    now = datetime.datetime.now()
+    today_str = now.strftime("%Y-%m-%d")
+    file_path = Path(f"data/tactical_summary_{today_str}.md")
+
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(f"# 🧩 Fox Valley Tactical Summary – {today_str}\n\n")
+            f.write(f"**Generated:** {now.strftime('%A, %B %d, %Y %I:%M %p CST')}\n\n")
+            f.write(f"**Total Value:** ${total_value:,.2f}\n")
+            f.write(f"**Cash (SPAXX):** ${cash_value:,.2f}\n\n")
+            f.write("## 🎯 Tactical Guidance\n")
+            f.write("- 🟢 Review new Zacks #1 candidates\n")
+            f.write("- 🟠 Evaluate positions losing Zacks #1\n")
+            f.write("- ⚪ Maintain cash flexibility\n")
+        st.success(f"✅ Tactical summary exported to {file_path.name}")
+        st.caption(f"Last automated tactical report generated: {now.strftime('%Y-%m-%d %H:%M CST')}")
+    except Exception as e:
+        st.error(f"⚠️ Failed to write tactical summary: {e}")
+
+# --- Weekly Auto-Refresh ---
+now = datetime.datetime.now()
+if now.weekday() == 6 and now.hour == 7:
+    generate_tactical_report()
