@@ -1,6 +1,6 @@
 # ============================================
-# FOX VALLEY INTELLIGENCE ENGINE v6.4 – Nov 2025
-# Tactical Signal Extension • Rank Delta • AI Allocation Matrix (Dark Mode)
+# FOX VALLEY INTELLIGENCE ENGINE v6.5 – Nov 2025
+# Dark Command Build • Rank Delta • Tactical Allocation • Clean Portfolio
 # ============================================
 
 import streamlit as st
@@ -11,7 +11,7 @@ import datetime, re
 
 # ---------- PAGE CONFIG ----------
 st.set_page_config(
-    page_title="Fox Valley Intelligence Engine v6.4 – Tactical Signal Command",
+    page_title="Fox Valley Intelligence Engine v6.5 – Tactical Command",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -38,6 +38,11 @@ def load_portfolio():
     return df
 
 portfolio = load_portfolio()
+
+# 🔥 Remove fully sold tickers from active display
+sold_tickers = ["MRMD", "KE", "IPG"]
+portfolio = portfolio[~portfolio["Ticker"].isin(sold_tickers)].copy()
+
 total_value = portfolio["Value"].sum()
 cash_row = portfolio[portfolio["Ticker"].str.contains("SPAXX", na=False)]
 cash_value = cash_row["Value"].sum()
@@ -98,7 +103,7 @@ def cross_match(zdf: pd.DataFrame, pf: pd.DataFrame) -> pd.DataFrame:
 
 g1,g2,dd = map(normalize_zacks,[g1_raw,g2_raw,dd_raw])
 
-# ---------- RANK DELTA ENGINE ----------
+# ---------- RANK DELTA ----------
 def compare_rank_deltas(today_df, prev_df):
     if today_df.empty or prev_df.empty:
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
@@ -108,7 +113,6 @@ def compare_rank_deltas(today_df, prev_df):
     persistent_rank1 = merged[(merged["Zacks Rank_Today"]==1) & (merged["Zacks Rank_Prev"]==1)]
     return new_rank1,persistent_rank1,dropped_rank1
 
-# Attempt to load yesterday’s files for delta comparison
 def get_yesterday_file(today_path):
     if today_path is None: return None
     m=re.search(r"(\d{4}-\d{2}-\d{2})",today_path)
@@ -119,15 +123,13 @@ def get_yesterday_file(today_path):
     return candidate if Path(candidate).exists() else None
 
 g1_prev,g2_prev,dd_prev=map(safe_read,[get_yesterday_file(G1_PATH),get_yesterday_file(G2_PATH),get_yesterday_file(DD_PATH)])
-
 new1,persist1,drop1=compare_rank_deltas(pd.concat([g1,g2,dd]),pd.concat([g1_prev,g2_prev,dd_prev]))
 
-# ---------- ALLOCATION ENGINE ----------
-def recommend_allocation(row):
-    rank=str(row.get("Zacks Rank", ""))
-    if rank=="1": return 12.0
-    if rank=="2": return 8.0
-    if rank=="3": return 5.0
+# ---------- ALLOCATION + STOP RULES ----------
+def recommend_allocation(rank):
+    if str(rank)=="1": return 12.0
+    if str(rank)=="2": return 8.0
+    if str(rank)=="3": return 5.0
     return 0.0
 
 def suggest_stop(df_name):
@@ -136,7 +138,7 @@ def suggest_stop(df_name):
     if "Defensive" in df_name: return "12%"
     return "10%"
 
-# ---------- INTELLIGENCE OVERLAY ----------
+# ---------- BUILD INTELLIGENCE ----------
 def build_intel(portfolio,g1,g2,dd,new1,persist1,drop1,cash_value,total_value):
     combined=pd.concat([g1,g2,dd],axis=0,ignore_index=True).drop_duplicates(subset=["Ticker"])
     held=set(portfolio["Ticker"].astype(str))
@@ -150,7 +152,7 @@ def build_intel(portfolio,g1,g2,dd,new1,persist1,drop1,cash_value,total_value):
     elif len(drop1)>len(new_rank1): bias="🟠 Defensive Bias"
 
     narrative=f"""
-Fox Valley Tactical Intelligence – Daily Overlay
+🧭 Fox Valley Tactical Intelligence – Daily Overlay
 Portfolio: ${total_value:,.2f}
 Cash: ${cash_value:,.2f} ({cash_pct:.1f}%)
 Active Bias: {bias}
@@ -158,8 +160,8 @@ Active Bias: {bias}
 New Rank #1s: {len(new1)} | Persistent: {len(persist1)} | Dropped: {len(drop1)}
 New Unheld #1 Candidates: {len(new_rank1)} | Held #1s: {len(held_rank1)}
 """
-    return {"narrative":narrative,"combined":combined,"new_rank1":new_rank1,"held_rank1":held_rank1,
-            "new1":new1,"persist1":persist1,"drop1":drop1,"bias":bias}
+    return {"narrative":narrative,"combined":combined,"new_rank1":new_rank1,
+            "held_rank1":held_rank1,"new1":new1,"drop1":drop1,"bias":bias}
 
 intel=build_intel(portfolio,g1,g2,dd,new1,persist1,drop1,cash_value,total_value)
 
@@ -171,7 +173,7 @@ tabs=st.tabs([
 
 # --- Portfolio Overview ---
 with tabs[0]:
-    st.subheader("Qualified Plan Holdings")
+    st.subheader("Qualified Plan Holdings (Active)")
     st.dataframe(portfolio,use_container_width=True)
     if not portfolio.empty:
         fig=px.pie(portfolio,values="Value",names="Ticker",title="Portfolio Allocation",hole=0.3)
@@ -183,10 +185,7 @@ with tabs[1]:
     g1m=cross_match(g1,portfolio)
     if not g1m.empty:
         g1m["Suggested Stop %"]=suggest_stop("Growth 1")
-        st.dataframe(g1m.style.map(lambda v:"background-color:#004d00" if str(v)=="1" else
-                                  "background-color:#665c00" if str(v)=="2" else
-                                  "background-color:#663300" if str(v)=="3" else "",subset=["Zacks Rank"]),
-                     use_container_width=True)
+        st.dataframe(g1m,use_container_width=True)
     else: st.info("No valid Growth 1 data.")
 
 # --- Growth 2 ---
@@ -195,10 +194,7 @@ with tabs[2]:
     g2m=cross_match(g2,portfolio)
     if not g2m.empty:
         g2m["Suggested Stop %"]=suggest_stop("Growth 2")
-        st.dataframe(g2m.style.map(lambda v:"background-color:#004d00" if str(v)=="1" else
-                                  "background-color:#665c00" if str(v)=="2" else
-                                  "background-color:#663300" if str(v)=="3" else "",subset=["Zacks Rank"]),
-                     use_container_width=True)
+        st.dataframe(g2m,use_container_width=True)
     else: st.info("No valid Growth 2 data.")
 
 # --- Defensive Dividend ---
@@ -207,10 +203,7 @@ with tabs[3]:
     ddm=cross_match(dd,portfolio)
     if not ddm.empty:
         ddm["Suggested Stop %"]=suggest_stop("Defensive Dividend")
-        st.dataframe(ddm.style.map(lambda v:"background-color:#004d00" if str(v)=="1" else
-                                  "background-color:#665c00" if str(v)=="2" else
-                                  "background-color:#663300" if str(v)=="3" else "",subset=["Zacks Rank"]),
-                     use_container_width=True)
+        st.dataframe(ddm,use_container_width=True)
     else: st.info("No valid Defensive Dividend data.")
 
 # --- Tactical Summary ---
@@ -222,27 +215,27 @@ with tabs[4]:
 with tabs[5]:
     st.subheader("📖 Daily Intelligence Brief – Rank Delta Analysis")
     st.markdown(f"```text\n{intel['narrative']}\n```")
-    st.markdown("### 🟢 New Zacks Rank #1s vs Yesterday")
+    st.markdown("### 🟢 New Rank #1s vs Yesterday")
     st.dataframe(intel["new1"],use_container_width=True)
     st.markdown("### 🟠 Dropped Rank #1s Since Yesterday")
     st.dataframe(intel["drop1"],use_container_width=True)
 
 # --- Tactical Decision Matrix ---
 with tabs[6]:
-    st.subheader("⚙️ Tactical Decision Matrix – AI Allocation Guidance")
+    st.subheader("⚙️ Tactical Decision Matrix – Allocation Guidance")
     exec_df=intel["new_rank1"].copy()
     if not exec_df.empty:
         exec_df["Suggested Stop %"]="10%"
-        exec_df["AllocPct"]=exec_df.apply(recommend_allocation,axis=1)
+        exec_df["AllocPct"]=exec_df["Zacks Rank"].apply(recommend_allocation)
         exec_df["Alloc$"]=exec_df["AllocPct"]*total_value/100
         st.dataframe(exec_df,use_container_width=True)
         total_alloc=exec_df["AllocPct"].sum()
-        tot_amt=exec_df["Alloc$"].sum() if "Alloc$" in exec_df.columns else exec_df["AllocPct"].sum()*total_value/100
+        tot_amt=exec_df["Alloc$"].sum()
         st.markdown(f"**Total Allocation → {total_alloc:.1f}% (~${tot_amt:,.0f})**")
     else:
         st.info("No new #1 candidates available for tactical allocation today.")
 
-# --- Auto File Export 06:45 ---
+# --- Auto Export ---
 def export_intel():
     now=datetime.datetime.now()
     fname=f"data/intel_brief_{now.strftime('%Y-%m-%d')}.md"
