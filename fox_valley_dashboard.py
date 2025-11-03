@@ -1,6 +1,6 @@
 # ============================================
-# FOX VALLEY INTELLIGENCE ENGINE v5.1 – Nov 2025
-# Zacks Tactical Rank Delta System (Executive Mode + Auto Maintenance)
+# FOX VALLEY INTELLIGENCE ENGINE v5.2 – Nov 2025
+# Zacks Tactical Rank Delta System (Executive Mode + Auto Maintenance + Integrity Report)
 # ============================================
 
 import streamlit as st
@@ -13,7 +13,7 @@ import os
 
 # ---------- PAGE CONFIG ----------
 st.set_page_config(
-    page_title="Fox Valley Intelligence Engine v5.1",
+    page_title="Fox Valley Intelligence Engine v5.2",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -31,26 +31,28 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ---------- AUTO FILE MAINTENANCE ----------
+# ---------- FILE CLEANUP ----------
 def cleanup_old_files():
-    """Deletes Zacks CSVs older than 7 days; retains ROI and portfolio files."""
+    """Remove Zacks CSVs older than 7 days."""
     data_path = Path("data")
+    removed = []
     if not data_path.exists():
-        return
+        return removed
     cutoff = datetime.datetime.now() - datetime.timedelta(days=7)
     for f in data_path.glob("zacks_custom_screen_*.csv"):
         try:
-            # Extract date pattern
             match = re.search(r"(\d{4}-\d{2}-\d{2})", str(f))
             if match:
                 file_date = datetime.datetime.strptime(match.group(1), "%Y-%m-%d")
                 if file_date < cutoff:
                     f.unlink()
-                    st.sidebar.info(f"🧹 Removed old file: {f.name}")
-        except Exception as e:
-            st.sidebar.warning(f"⚠️ Could not process {f.name}: {e}")
+                    removed.append(f.name)
+        except Exception:
+            continue
+    return removed
 
-cleanup_old_files()
+purged_files = cleanup_old_files()
+last_cleanup = datetime.datetime.now().strftime("%Y-%m-%d %H:%M CST")
 
 # ---------- LOAD PORTFOLIO ----------
 @st.cache_data
@@ -64,44 +66,40 @@ portfolio = load_portfolio()
 total_value = portfolio["Value"].sum()
 cash_value = portfolio.loc[portfolio["Ticker"].str.contains("SPAXX", na=False), "Value"].sum()
 
-# ---------- AUTO-DETECT LATEST ZACKS FILES ----------
+# ---------- AUTO-DETECT ZACKS FILES ----------
 def get_latest(pattern):
     files = Path("data").glob(pattern)
     date_pattern = re.compile(r"(\d{4}-\d{2}-\d{2})")
     dated = []
     for f in files:
         m = date_pattern.search(str(f))
-        if m: dated.append((m.group(1), f))
+        if m:
+            dated.append((m.group(1), f))
     return str(max(dated)[1]) if dated else None
 
 G1 = get_latest("zacks_custom_screen_*Growth1*.csv")
 G2 = get_latest("zacks_custom_screen_*Growth2*.csv")
 DD = get_latest("zacks_custom_screen_*Defensive*.csv")
 
-def safe_read(p):
+def safe_read(path):
     try:
-        return pd.read_csv(p) if p else pd.DataFrame()
+        return pd.read_csv(path) if path else pd.DataFrame()
     except Exception:
         return pd.DataFrame()
 
-g1 = safe_read(G1)
-g2 = safe_read(G2)
-dd = safe_read(DD)
-
-# ---------- SIDEBAR STATUS ----------
-if any(not d.empty for d in [g1, g2, dd]):
-    st.sidebar.success("✅ Latest Zacks files auto-loaded from /data")
-else:
-    st.sidebar.error("⚠️ No valid Zacks CSVs found in /data folder.")
+g1, g2, dd = safe_read(G1), safe_read(G2), safe_read(DD)
 
 # ---------- NORMALIZATION ----------
 def normalize(df):
-    if df.empty: return df
+    if df.empty:
+        return df
     tick = [c for c in df.columns if "ticker" in c.lower() or "symbol" in c.lower()]
-    if tick: df.rename(columns={tick[0]: "Ticker"}, inplace=True)
+    if tick:
+        df.rename(columns={tick[0]: "Ticker"}, inplace=True)
     if "Zacks Rank" not in df.columns:
         ranks = [c for c in df.columns if "rank" in c.lower()]
-        if ranks: df.rename(columns={ranks[0]: "Zacks Rank"}, inplace=True)
+        if ranks:
+            df.rename(columns={ranks[0]: "Zacks Rank"}, inplace=True)
     keep = [c for c in ["Ticker", "Zacks Rank"] if c in df.columns]
     return df[keep].copy()
 
@@ -154,6 +152,7 @@ roi_df = log_roi()
 
 # ---------- MAIN DASHBOARD ----------
 tabs = st.tabs([
+    "📂 Data Integrity Report",
     "💼 Portfolio",
     "📊 Growth 1",
     "📊 Growth 2",
@@ -162,8 +161,39 @@ tabs = st.tabs([
     "📈 ROI Tracker"
 ])
 
-# --- Portfolio ---
+# --- Integrity Report ---
 with tabs[0]:
+    st.subheader("📂 Data Integrity Report – Pre-Flight Validation")
+    st.markdown(f"**Last Cleanup:** {last_cleanup}")
+    if purged_files:
+        st.markdown(f"🧹 Removed files: {', '.join(purged_files)}")
+    else:
+        st.markdown("✅ No files required cleanup today.")
+
+    report = []
+    for name, path, df in [
+        ("Growth 1", G1, g1), ("Growth 2", G2, g2), ("Defensive Dividend", DD, dd)
+    ]:
+        if path and Path(path).exists():
+            report.append({
+                "Screen": name,
+                "File": Path(path).name,
+                "Records": len(df),
+                "Status": "✅ Loaded" if len(df) > 0 else "⚠️ Empty"
+            })
+        else:
+            report.append({
+                "Screen": name,
+                "File": "None",
+                "Records": 0,
+                "Status": "❌ Missing"
+            })
+
+    rep_df = pd.DataFrame(report)
+    st.dataframe(rep_df, use_container_width=True)
+
+# --- Portfolio ---
+with tabs[1]:
     st.subheader("Qualified Plan Holdings")
     st.dataframe(portfolio, use_container_width=True)
     if not portfolio.empty:
@@ -171,7 +201,7 @@ with tabs[0]:
                      title="Portfolio Allocation", hole=0.3)
         st.plotly_chart(fig, use_container_width=True)
 
-# --- Zacks Tabs ---
+# --- Growth Tabs ---
 def show_zacks(df, label):
     st.subheader(f"Zacks {label} Cross-Match")
     if df.empty:
@@ -190,12 +220,12 @@ def show_zacks(df, label):
         ), use_container_width=True
     )
 
-with tabs[1]: show_zacks(g1, "Growth 1")
-with tabs[2]: show_zacks(g2, "Growth 2")
-with tabs[3]: show_zacks(dd, "Defensive Dividend")
+with tabs[2]: show_zacks(g1, "Growth 1")
+with tabs[3]: show_zacks(g2, "Growth 2")
+with tabs[4]: show_zacks(dd, "Defensive Dividend")
 
 # --- Tactical Summary ---
-with tabs[4]:
+with tabs[5]:
     st.subheader("🧩 Tactical Summary – Executive Overview")
     st.markdown(f"```text\n{intel['narrative']}\n```")
     st.markdown("### 🟢 New Zacks Rank #1 Candidates")
@@ -204,7 +234,7 @@ with tabs[4]:
     st.dataframe(intel["kept"], use_container_width=True) if not intel["kept"].empty else st.info("No held #1 positions today.")
 
 # --- ROI Tracker ---
-with tabs[5]:
+with tabs[6]:
     st.subheader("📈 ROI vs Zacks 26% Annual Benchmark")
     if not roi_df.empty:
         fig = px.line(roi_df, x="Date", y="ROI", title="ROI History", markers=True)
