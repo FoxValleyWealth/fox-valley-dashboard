@@ -1,6 +1,6 @@
 # ============================================
-# FOX VALLEY INTELLIGENCE ENGINE v5.0 – Nov 2025
-# Zacks Tactical Rank Delta System (Executive Mode, Dark)
+# FOX VALLEY INTELLIGENCE ENGINE v5.1 – Nov 2025
+# Zacks Tactical Rank Delta System (Executive Mode + Auto Maintenance)
 # ============================================
 
 import streamlit as st
@@ -9,15 +9,16 @@ import plotly.express as px
 from pathlib import Path
 import re
 import datetime
+import os
 
-# ---------- CONFIG ----------
+# ---------- PAGE CONFIG ----------
 st.set_page_config(
-    page_title="Fox Valley Intelligence Engine v5.0",
+    page_title="Fox Valley Intelligence Engine v5.1",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# ---------- THEME ----------
+# ---------- DARK MODE ----------
 st.markdown("""
     <style>
         body {background-color:#0e1117;color:#FAFAFA;}
@@ -30,6 +31,27 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# ---------- AUTO FILE MAINTENANCE ----------
+def cleanup_old_files():
+    """Deletes Zacks CSVs older than 7 days; retains ROI and portfolio files."""
+    data_path = Path("data")
+    if not data_path.exists():
+        return
+    cutoff = datetime.datetime.now() - datetime.timedelta(days=7)
+    for f in data_path.glob("zacks_custom_screen_*.csv"):
+        try:
+            # Extract date pattern
+            match = re.search(r"(\d{4}-\d{2}-\d{2})", str(f))
+            if match:
+                file_date = datetime.datetime.strptime(match.group(1), "%Y-%m-%d")
+                if file_date < cutoff:
+                    f.unlink()
+                    st.sidebar.info(f"🧹 Removed old file: {f.name}")
+        except Exception as e:
+            st.sidebar.warning(f"⚠️ Could not process {f.name}: {e}")
+
+cleanup_old_files()
+
 # ---------- LOAD PORTFOLIO ----------
 @st.cache_data
 def load_portfolio():
@@ -41,9 +63,8 @@ def load_portfolio():
 portfolio = load_portfolio()
 total_value = portfolio["Value"].sum()
 cash_value = portfolio.loc[portfolio["Ticker"].str.contains("SPAXX", na=False), "Value"].sum()
-cash_pct = (cash_value / total_value) * 100 if total_value > 0 else 0
 
-# ---------- AUTO-DETECT NEWEST ZACKS FILES ----------
+# ---------- AUTO-DETECT LATEST ZACKS FILES ----------
 def get_latest(pattern):
     files = Path("data").glob(pattern)
     date_pattern = re.compile(r"(\d{4}-\d{2}-\d{2})")
@@ -57,13 +78,23 @@ G1 = get_latest("zacks_custom_screen_*Growth1*.csv")
 G2 = get_latest("zacks_custom_screen_*Growth2*.csv")
 DD = get_latest("zacks_custom_screen_*Defensive*.csv")
 
-def safe_read(p): 
-    try: return pd.read_csv(p) if p else pd.DataFrame()
-    except: return pd.DataFrame()
+def safe_read(p):
+    try:
+        return pd.read_csv(p) if p else pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
 
-g1 = safe_read(G1); g2 = safe_read(G2); dd = safe_read(DD)
+g1 = safe_read(G1)
+g2 = safe_read(G2)
+dd = safe_read(DD)
 
-# ---------- NORMALIZE ----------
+# ---------- SIDEBAR STATUS ----------
+if any(not d.empty for d in [g1, g2, dd]):
+    st.sidebar.success("✅ Latest Zacks files auto-loaded from /data")
+else:
+    st.sidebar.error("⚠️ No valid Zacks CSVs found in /data folder.")
+
+# ---------- NORMALIZATION ----------
 def normalize(df):
     if df.empty: return df
     tick = [c for c in df.columns if "ticker" in c.lower() or "symbol" in c.lower()]
@@ -76,13 +107,7 @@ def normalize(df):
 
 g1, g2, dd = map(normalize, [g1, g2, dd])
 
-# ---------- SIDEBAR ----------
-if any(not d.empty for d in [g1, g2, dd]):
-    st.sidebar.success("✅ Auto-loaded latest Zacks files from /data")
-else:
-    st.sidebar.error("⚠️ No Zacks data detected in /data.")
-
-# ---------- INTELLIGENCE CORE ----------
+# ---------- INTELLIGENCE ENGINE ----------
 def build_intel(pf, g1, g2, dd, cash, total):
     combined = pd.concat([g1, g2, dd], axis=0, ignore_index=True).drop_duplicates(subset=["Ticker"])
     held = set(pf["Ticker"].astype(str))
@@ -90,42 +115,44 @@ def build_intel(pf, g1, g2, dd, cash, total):
     new = rank1[~rank1["Ticker"].isin(held)] if not rank1.empty else pd.DataFrame()
     kept = rank1[rank1["Ticker"].isin(held)] if not rank1.empty else pd.DataFrame()
 
-    narrative = [
-        f"🧭 Fox Valley Intelligence Summary – {datetime.datetime.now():%B %d, %Y}",
-        f"Portfolio Value: ${total:,.2f}",
-        f"Cash: ${cash:,.2f} ({(cash/total)*100:.2f}%)",
+    cash_pct = (cash / total) * 100 if total > 0 else 0
+    summary = [
+        f"🧭 Fox Valley Intelligence Brief – {datetime.datetime.now():%B %d, %Y}",
+        f"Total Portfolio: ${total:,.2f}",
+        f"Cash Reserve: ${cash:,.2f} ({cash_pct:.2f}%)",
         f"Detected Zacks #1 tickers: {len(rank1)}",
-        f"New #1 candidates: {len(new)}",
-        f"Held #1 positions: {len(kept)}",
+        f"New #1 Candidates: {len(new)}",
+        f"Held #1 Positions: {len(kept)}"
     ]
-    if cash/total < 0.05:
-        narrative.append("⚠️ Low cash reserves — limit new entries.")
-    elif cash/total > 0.25:
-        narrative.append("🟡 High cash reserves — potential deployment window.")
+    if cash_pct < 5:
+        summary.append("⚠️ Low liquidity – prioritize profit-taking or defensive holds.")
+    elif cash_pct > 25:
+        summary.append("🟡 Elevated cash reserves – redeployment window open.")
     else:
-        narrative.append("🟢 Cash optimal for tactical execution.")
+        summary.append("🟢 Cash allocation optimal for tactical execution.")
 
-    return {"combined": combined, "new": new, "kept": kept, "narrative": "\n".join(narrative)}
+    return {"combined": combined, "new": new, "kept": kept, "narrative": "\n".join(summary)}
 
 intel = build_intel(portfolio, g1, g2, dd, cash_value, total_value)
 
-# ---------- ROI LOGGER ----------
+# ---------- ROI TRACKER ----------
 def log_roi():
-    roi_path = Path("data/roi_history.csv")
+    path = Path("data/roi_history.csv")
     now = datetime.datetime.now().strftime("%Y-%m-%d")
-    roi = (portfolio["Value"].sum() - portfolio["Value"].mean()) / portfolio["Value"].mean() * 100
-    entry = pd.DataFrame([[now, total_value, cash_value, roi]], columns=["Date","Value","Cash","ROI"])
-    if roi_path.exists():
-        prev = pd.read_csv(roi_path)
-        df = pd.concat([prev, entry], ignore_index=True).drop_duplicates(subset=["Date"], keep="last")
+    roi = (portfolio["GainLoss%"].mean()) if "GainLoss%" in portfolio.columns else 0
+    new_row = pd.DataFrame([[now, total_value, cash_value, roi]],
+                           columns=["Date", "Value", "Cash", "ROI"])
+    if path.exists():
+        df = pd.read_csv(path)
+        df = pd.concat([df, new_row], ignore_index=True).drop_duplicates(subset=["Date"], keep="last")
     else:
-        df = entry
-    df.to_csv(roi_path, index=False)
+        df = new_row
+    df.to_csv(path, index=False)
     return df
 
 roi_df = log_roi()
 
-# ---------- MAIN TABS ----------
+# ---------- MAIN DASHBOARD ----------
 tabs = st.tabs([
     "💼 Portfolio",
     "📊 Growth 1",
@@ -140,25 +167,27 @@ with tabs[0]:
     st.subheader("Qualified Plan Holdings")
     st.dataframe(portfolio, use_container_width=True)
     if not portfolio.empty:
-        fig = px.pie(portfolio, values="Value", names="Ticker", title="Portfolio Allocation", hole=0.3)
+        fig = px.pie(portfolio, values="Value", names="Ticker",
+                     title="Portfolio Allocation", hole=0.3)
         st.plotly_chart(fig, use_container_width=True)
 
-# --- Growth Tabs ---
-def show_zacks(df, name):
-    st.subheader(f"Zacks {name} Cross-Match")
+# --- Zacks Tabs ---
+def show_zacks(df, label):
+    st.subheader(f"Zacks {label} Cross-Match")
     if df.empty:
-        st.info(f"No valid {name} data found.")
+        st.info(f"No valid {label} data found.")
         return
     merged = df.merge(portfolio[["Ticker"]], on="Ticker", how="left", indicator=True)
-    merged["Held?"] = merged["_merge"].map({"both":"✔ Held","left_only":"🟢 Candidate"})
-    merged.drop("_merge", axis=1, inplace=True)
+    merged["Held?"] = merged["_merge"].map({"both": "✔ Held", "left_only": "🟢 Candidate"})
+    merged.drop(columns=["_merge"], inplace=True)
     st.dataframe(
         merged.style.map(
-            lambda v: "background-color:#004d00" if str(v)=="1"
-            else "background-color:#665c00" if str(v)=="2"
-            else "background-color:#663300" if str(v)=="3"
-            else "", subset=["Zacks Rank"]),
-        use_container_width=True
+            lambda v: "background-color:#004d00" if str(v) == "1"
+            else "background-color:#665c00" if str(v) == "2"
+            else "background-color:#663300" if str(v) == "3"
+            else "",
+            subset=["Zacks Rank"]
+        ), use_container_width=True
     )
 
 with tabs[1]: show_zacks(g1, "Growth 1")
@@ -167,18 +196,16 @@ with tabs[3]: show_zacks(dd, "Defensive Dividend")
 
 # --- Tactical Summary ---
 with tabs[4]:
-    st.subheader("🧩 Tactical Summary – Executive Brief")
+    st.subheader("🧩 Tactical Summary – Executive Overview")
     st.markdown(f"```text\n{intel['narrative']}\n```")
-
-    st.markdown("### 🟢 New Zacks #1 Candidates")
-    st.dataframe(intel["new"], use_container_width=True) if not intel["new"].empty else st.info("No new #1s today.")
-
-    st.markdown("### ✔ Held Positions Still #1")
-    st.dataframe(intel["kept"], use_container_width=True) if not intel["kept"].empty else st.info("No held Rank #1s today.")
+    st.markdown("### 🟢 New Zacks Rank #1 Candidates")
+    st.dataframe(intel["new"], use_container_width=True) if not intel["new"].empty else st.info("No new #1 candidates.")
+    st.markdown("### ✔ Held Positions Still Rank #1")
+    st.dataframe(intel["kept"], use_container_width=True) if not intel["kept"].empty else st.info("No held #1 positions today.")
 
 # --- ROI Tracker ---
 with tabs[5]:
-    st.subheader("📈 ROI vs Zacks 26% Annual Target")
+    st.subheader("📈 ROI vs Zacks 26% Annual Benchmark")
     if not roi_df.empty:
         fig = px.line(roi_df, x="Date", y="ROI", title="ROI History", markers=True)
         st.plotly_chart(fig, use_container_width=True)
@@ -190,16 +217,16 @@ with tabs[5]:
         else:
             st.warning(f"📉 Trailing benchmark by {abs(delta):.2f}%")
     else:
-        st.info("ROI history not yet recorded.")
+        st.info("No ROI data logged yet.")
 
-# --- Auto Report at 06:45 ---
+# ---------- AUTO DAILY REPORT ----------
 def export_brief():
     now = datetime.datetime.now()
     fname = Path(f"data/tactical_brief_{now:%Y-%m-%d}.md")
     with open(fname, "w", encoding="utf-8") as f:
         f.write(f"# Fox Valley Daily Intelligence Brief – {now:%B %d, %Y}\n\n")
         f.write(intel["narrative"])
-        f.write("\n\n## ROI\n")
+        f.write("\n\n## ROI Snapshot\n")
         f.write(roi_df.tail(1).to_string(index=False))
     st.caption(f"✅ Daily brief saved → {fname.name}")
 
