@@ -1,6 +1,6 @@
 # ============================================
-# FOX VALLEY INTELLIGENCE ENGINE v7.0 – Nov 2025
-# Dark Tactical Command • Zacks Rank + Allocation • Clean Portfolio
+# FOX VALLEY INTELLIGENCE ENGINE v7.1 – Nov 2025
+# Dark Tactical Command • Manual Totals • Clean Portfolio
 # ============================================
 
 import streamlit as st
@@ -12,7 +12,7 @@ import re
 
 # ---------- PAGE CONFIG ----------
 st.set_page_config(
-    page_title="Fox Valley Intelligence Engine v7.0 – Tactical Command",
+    page_title="Fox Valley Intelligence Engine v7.1 – Tactical Command",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -34,13 +34,19 @@ st.markdown(
 )
 
 # =========================================================
+# 0) MANUAL OVERRIDES (FROM LIVE ACCOUNT)
+# =========================================================
+MANUAL_TOTAL_VALUE = 163_663.96   # live account value
+MANUAL_CASH_VALUE  = 27_721.60   # cash available to trade
+
+# =========================================================
 # 1) LOAD + PATCH PORTFOLIO (REMOVE SOLD, ADD NEW POSITIONS)
 # =========================================================
 
 @st.cache_data
 def load_portfolio():
     df = pd.read_csv("data/portfolio_data.csv")
-    # make sure these are numeric
+    # make sure these are numeric if present
     if "GainLoss%" in df.columns:
         df["GainLoss%"] = pd.to_numeric(df["GainLoss%"], errors="coerce")
     if "Value" in df.columns:
@@ -55,7 +61,8 @@ if "Ticker" in portfolio.columns:
     portfolio["Ticker"] = portfolio["Ticker"].astype(str)
     portfolio = portfolio[~portfolio["Ticker"].isin(sold_tickers)].copy()
 else:
-    st.stop()  # can't continue without tickers
+    st.error("portfolio_data.csv must contain a 'Ticker' column.")
+    st.stop()
 
 def ensure_position(df: pd.DataFrame, ticker: str, shares: float, price: float):
     """If ticker not present, add it with basic fields."""
@@ -76,7 +83,7 @@ def ensure_position(df: pd.DataFrame, ticker: str, shares: float, price: float):
             new_row[col] = price
         elif col == "Value":
             new_row[col] = value
-        elif col in ("GainLoss%", "GainLossPct", "gainloss%"):
+        elif col in ("GainLoss%", "gainloss%", "gainlosspct"):
             new_row[col] = 0.0
         elif col.lower() == "type":
             new_row[col] = "Equity"
@@ -94,15 +101,18 @@ portfolio = ensure_position(portfolio, "PRK", 34, 151.00)
 # NTB: 110 @ 46.55
 portfolio = ensure_position(portfolio, "NTB", 110, 46.55)
 
-# recompute total value + cash
+# Raw values from CSV (still used for pie chart, etc.)
 if "Value" not in portfolio.columns:
     st.error("portfolio_data.csv must contain a 'Value' column.")
     st.stop()
 
-total_value = pd.to_numeric(portfolio["Value"], errors="coerce").sum()
-
+raw_total_value = pd.to_numeric(portfolio["Value"], errors="coerce").sum()
 cash_mask = portfolio["Ticker"].str.contains("SPAXX", case=False, na=False)
-cash_value = pd.to_numeric(portfolio.loc[cash_mask, "Value"], errors="coerce").sum()
+raw_cash_value = pd.to_numeric(portfolio.loc[cash_mask, "Value"], errors="coerce").sum()
+
+# 🔒 Use manual overrides for all tactical logic and metrics
+total_value = MANUAL_TOTAL_VALUE
+cash_value  = MANUAL_CASH_VALUE
 
 # =========================================================
 # 2) ZACKS FILE AUTO-DETECT
@@ -145,7 +155,7 @@ def safe_read(path):
     except Exception:
         return pd.DataFrame()
 
-# Allow both old underscore style and new space style
+# Allow both underscore and space naming styles
 G1_PATH = find_latest_by_keywords(["zacks", "growth", "1"])
 G2_PATH = find_latest_by_keywords(["zacks", "growth", "2"])
 DD_PATH = find_latest_by_keywords(["zacks", "defensive"])
@@ -181,10 +191,9 @@ def normalize_zacks(df: pd.DataFrame, group_name: str) -> pd.DataFrame:
         return pd.DataFrame()
 
     out = df[keep].copy()
-    # normalize rank to numeric if possible
+    out["Ticker"] = out["Ticker"].astype(str)
     if "Zacks Rank" in out.columns:
         out["Zacks Rank"] = pd.to_numeric(out["Zacks Rank"], errors="coerce")
-    out["Ticker"] = out["Ticker"].astype(str)
     out["Group"] = group_name
     return out
 
@@ -201,8 +210,15 @@ g1 = normalize_zacks(g1_raw, "Growth 1")
 g2 = normalize_zacks(g2_raw, "Growth 2")
 dd = normalize_zacks(dd_raw, "Defensive Dividend")
 
+combined_zacks = (
+    pd.concat([g1, g2, dd], axis=0, ignore_index=True)
+    .drop_duplicates(subset=["Ticker"], keep="first")
+    if (not g1.empty or not g2.empty or not dd.empty)
+    else pd.DataFrame()
+)
+
 # =========================================================
-# 4) RANK DELTA (BEST EFFORT – DOESN'T BREAK IF MISSING)
+# 4) RANK DELTA (TODAY VS PRIOR DAY – BEST EFFORT)
 # =========================================================
 
 def find_prev_by_keywords_and_date(keywords, target_date: datetime.date):
@@ -230,35 +246,24 @@ def load_prev_today_pair(keywords):
     return safe_read(latest_path), safe_read(prev_path)
 
 def prep_rank_df(df, group_name: str):
-    df = normalize_zacks(df, group_name)
-    if "Zacks Rank" in df.columns:
-        df["Zacks Rank"] = pd.to_numeric(df["Zacks Rank"], errors="coerce")
-    return df
+    return normalize_zacks(df, group_name)
 
-# combine today + yesterday for delta
-today_all = pd.concat(
-    [
-        prep_rank_df(g1_raw, "Growth 1"),
-        prep_rank_df(g2_raw, "Growth 2"),
-        prep_rank_df(dd_raw, "Defensive Dividend"),
-    ],
-    axis=0,
-    ignore_index=True,
-)
-
-# best effort previous-day load
 g1_today_raw, g1_prev_raw = load_prev_today_pair(["zacks", "growth", "1"])
 g2_today_raw, g2_prev_raw = load_prev_today_pair(["zacks", "growth", "2"])
 dd_today_raw, dd_prev_raw = load_prev_today_pair(["zacks", "defensive"])
 
+today_all = pd.concat(
+    [prep_rank_df(g1_today_raw, "Growth 1"),
+     prep_rank_df(g2_today_raw, "Growth 2"),
+     prep_rank_df(dd_today_raw, "Defensive Dividend")],
+    axis=0, ignore_index=True
+)
+
 prev_all = pd.concat(
-    [
-        prep_rank_df(g1_prev_raw, "Growth 1"),
-        prep_rank_df(g2_prev_raw, "Growth 2"),
-        prep_rank_df(dd_prev_raw, "Defensive Dividend"),
-    ],
-    axis=0,
-    ignore_index=True,
+    [prep_rank_df(g1_prev_raw, "Growth 1"),
+     prep_rank_df(g2_prev_raw, "Growth 2"),
+     prep_rank_df(dd_prev_raw, "Defensive Dividend")],
+    axis=0, ignore_index=True
 )
 
 def compute_rank_deltas(today_df: pd.DataFrame, prev_df: pd.DataFrame):
@@ -306,39 +311,38 @@ def build_allocation_for_new_rank1(combined: pd.DataFrame,
         return pd.DataFrame()
 
     held = set(portfolio_df["Ticker"].astype(str))
-    # candidates: Rank 1 and not currently held
     candidates = combined[(combined["Zacks Rank"] == 1)].copy()
     candidates = candidates[~candidates["Ticker"].isin(held)].copy()
 
     if candidates.empty:
         return candidates
 
-    # 15% portfolio cash floor
+    # Maintain 15% cash floor
     min_cash = 0.15 * total_value
     if cash_value <= min_cash:
         candidates["Suggested Stop %"] = candidates["Group"].apply(suggest_stop_for_group)
         candidates["AllocPct"] = 0.0
         candidates["EstBuy$"] = 0.0
-        candidates["AI Action"] = "HOLD – Cash Floor Reached"
+        candidates["AI Action"] = "HOLD – Cash floor reached"
         return candidates
 
-    deployable = cash_value - min_cash  # dollars we can put to work
+    deployable = cash_value - min_cash
     n = len(candidates)
     if n <= 0 or deployable <= 0:
         candidates["Suggested Stop %"] = candidates["Group"].apply(suggest_stop_for_group)
         candidates["AllocPct"] = 0.0
         candidates["EstBuy$"] = 0.0
-        candidates["AI Action"] = "HOLD – No Deployable Cash"
+        candidates["AI Action"] = "HOLD – No deployable cash"
         return candidates
 
     max_pos_value = 0.15 * total_value  # single-position cap
-    per_dollar = min(deployable / n, max_pos_value)
-    per_pct = per_dollar / total_value * 100 if total_value > 0 else 0.0
+    per_dollars = min(deployable / n, max_pos_value)
+    per_pct = per_dollars / total_value * 100 if total_value > 0 else 0.0
 
     candidates["Suggested Stop %"] = candidates["Group"].apply(suggest_stop_for_group)
     candidates["AllocPct"] = per_pct
-    candidates["EstBuy$"] = per_dollar
-    candidates["AI Action"] = "BUY – Rank #1 Candidate"
+    candidates["EstBuy$"] = per_dollars
+    candidates["AI Action"] = "BUY – Rank #1 candidate"
 
     return candidates
 
@@ -350,13 +354,16 @@ def build_intel_overlay(portfolio_df: pd.DataFrame,
                         cash_value: float,
                         total_value: float) -> dict:
     held = set(portfolio_df["Ticker"].astype(str))
-    rank1 = combined_df[combined_df["Zacks Rank"] == 1] if not combined_df.empty else pd.DataFrame()
+    if not combined_df.empty and "Zacks Rank" in combined_df.columns:
+        rank1 = combined_df[combined_df["Zacks Rank"] == 1]
+    else:
+        rank1 = pd.DataFrame()
+
     new_unheld = rank1[~rank1["Ticker"].isin(held)] if not rank1.empty else pd.DataFrame()
     held_rank1 = rank1[rank1["Ticker"].isin(held)] if not rank1.empty else pd.DataFrame()
 
     cash_pct = (cash_value / total_value) * 100 if total_value > 0 else 0
 
-    # bias logic
     bias = "⚪ Neutral"
     if len(new_unheld) > len(drop1):
         bias = "🟢 Offensive Bias"
@@ -373,8 +380,10 @@ New Rank #1s vs yesterday: {len(new1)}
 Persistent Rank #1s: {len(persist1)}
 Dropped Rank #1s: {len(drop1)}
 
-New #1 Candidates NOT Held: {len(new_unheld)}
-Held Positions Still Rank #1: {len(held_rank1)}
+New Rank #1 Candidates NOT Held: {len(new_unheld)}
+Held Positions Still Rank #1: {len(held
+
+1)}
 """
 
     return {
@@ -386,10 +395,6 @@ Held Positions Still Rank #1: {len(held_rank1)}
         "drop1": drop1,
         "bias": bias,
     }
-
-combined_zacks = pd.concat([g1, g2, dd], axis=0, ignore_index=True).drop_duplicates(
-    subset=["Ticker"], keep="first"
-) if not g1.empty or not g2.empty or not dd.empty else pd.DataFrame()
 
 allocation_df = build_allocation_for_new_rank1(
     combined_zacks, portfolio, total_value, cash_value
@@ -423,19 +428,19 @@ tabs = st.tabs(
 
 # --- TAB 0: PORTFOLIO OVERVIEW ---
 with tabs[0]:
-    st.subheader("Qualified Plan Holdings (Active Only – MRMD/KE/IPG Removed)")
+    st.subheader("Qualified Plan Holdings (Active – MRMD/KE/IPG Removed)")
     st.dataframe(portfolio, use_container_width=True)
 
     col1, col2 = st.columns(2)
     col1.metric("Total Account Value", f"${total_value:,.2f}")
-    col2.metric("Cash – SPAXX (Money Market)", f"${cash_value:,.2f}")
+    col2.metric("Cash Available to Trade", f"${cash_value:,.2f}")
 
     if not portfolio.empty and "Value" in portfolio.columns:
         fig = px.pie(
             portfolio,
             values="Value",
             names="Ticker",
-            title="Portfolio Allocation",
+            title="Portfolio Allocation (using CSV values)",
             hole=0.3,
         )
         st.plotly_chart(fig, use_container_width=True)
@@ -473,22 +478,17 @@ with tabs[3]:
 # --- TAB 4: TACTICAL DECISION MATRIX ---
 with tabs[4]:
     st.subheader("⚙️ Tactical Decision Matrix – BUY Candidates")
-
     if not allocation_df.empty:
-        # only show BUY rows; others will already say why they are 0%
         st.dataframe(allocation_df, use_container_width=True)
-
         if "AllocPct" in allocation_df.columns:
             total_alloc_pct = allocation_df["AllocPct"].sum()
             est_total_buy = allocation_df["EstBuy$"].sum()
             st.markdown(
                 f"**Total Proposed Allocation → {total_alloc_pct:.1f}% (~${est_total_buy:,.0f})**"
             )
-            st.caption("Rule: Maintain ~15% minimum cash and ≤15% per single position.")
+            st.caption("Rule: Maintain ~15% cash and ≤15% per single position.")
     else:
-        st.info(
-            "No new Zacks Rank #1 candidates available for deployment under current cash rules."
-        )
+        st.info("No new Zacks Rank #1 candidates available for deployment under current cash rules.")
 
 # --- TAB 5: TACTICAL SUMMARY ---
 with tabs[5]:
