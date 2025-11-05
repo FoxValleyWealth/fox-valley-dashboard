@@ -4,7 +4,7 @@ import streamlit as st
 
 # 1️⃣ Load portfolio safely
 try:
-    portfolio = pd.read_csv("data/portfolio_data.csv")
+    portfolio = pd.read_csv("data/Portfolio_Positions_Nov-05-2025.csv")
 except Exception as e:
     st.error(f"❌ Unable to load portfolio_data.csv: {e}")
     st.stop()
