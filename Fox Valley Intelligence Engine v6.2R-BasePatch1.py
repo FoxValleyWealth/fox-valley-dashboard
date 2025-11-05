@@ -1,11 +1,27 @@
-# ---------- PORTFOLIO NORMALIZATION & VALIDATION ----------
-portfolio["Ticker"] = portfolio["Ticker"].astype(str).str.strip().str.upper()
-if "CostBasis" in portfolio.columns and "MarketPrice" in portfolio.columns:
-    portfolio["Shares"] = pd.to_numeric(portfolio.get("Shares", 0), errors="coerce")
+# ---------- PORTFOLIO LOAD + NORMALIZATION & VALIDATION ----------
+import pandas as pd
+import streamlit as st
+
+# 1️⃣ Load portfolio safely
+try:
+    portfolio = pd.read_csv("data/portfolio_data.csv")
+except Exception as e:
+    st.error(f"❌ Unable to load portfolio_data.csv: {e}")
+    st.stop()
+
+# 2️⃣ Normalize tickers
+if "Ticker" in portfolio.columns:
+    portfolio["Ticker"] = portfolio["Ticker"].astype(str).str.strip().str.upper()
+    # Remove special characters like ** or .PK
+    portfolio["Ticker"] = portfolio["Ticker"].str.replace(r"[^A-Z]", "", regex=True)
+else:
+    st.warning("⚠️ Missing 'Ticker' column in portfolio_data.csv")
+
+# 3️⃣ Compute gain/loss only if required columns exist
+if all(col in portfolio.columns for col in ["CostBasis", "MarketPrice", "Shares"]):
+    portfolio["Shares"] = pd.to_numeric(portfolio["Shares"], errors="coerce")
     portfolio["MarketValue"] = portfolio["Shares"] * portfolio["MarketPrice"]
     portfolio["GainLoss$"] = (portfolio["MarketPrice"] - portfolio["CostBasis"]) * portfolio["Shares"]
     portfolio["GainLoss%"] = ((portfolio["MarketPrice"] / portfolio["CostBasis"]) - 1) * 100
-    portfolio["Ticker"] = portfolio["Ticker"].str.replace(r"[^A-Z]", "", regex=True)
-
 else:
-    st.warning("⚠️ Missing CostBasis or MarketPrice columns in portfolio_data.csv")
+    st.warning("⚠️ Missing one of: CostBasis, MarketPrice, or Shares columns.")
