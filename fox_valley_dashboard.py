@@ -10,7 +10,6 @@ import re
 import datetime
 
 # --- ONE-TIME CACHE CLEAR TO REMOVE OLD DATA ---
-# (This will purge Streamlit’s cache at launch, ensuring fresh portfolio values)
 st.cache_data.clear()
 st.cache_resource.clear()
 
@@ -34,13 +33,37 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ---------- PORTFOLIO ----------
+# ---------- PORTFOLIO (DAILY SNAPSHOT SUPPORT READY) ----------
+def get_latest_portfolio():
+    """
+    Auto-detect the latest Portfolio_Positions_YYYY-MM-DD.csv file in /data.
+    Falls back to portfolio_data.csv if no dated file exists.
+    """
+    files = Path("data").glob("Portfolio_Positions_*.csv")
+    date_pattern = re.compile(r"(\d{4}-\d{2}-\d{2})")
+    dated = []
+    for f in files:
+        m = date_pattern.search(str(f))
+        if m:
+            dated.append((m.group(1), f))
+    if dated:
+        return str(max(dated)[1])
+    # Fallback legacy name
+    fallback = Path("data") / "portfolio_data.csv"
+    return str(fallback) if fallback.exists() else None
+
 @st.cache_data
 def load_portfolio():
+    latest_path = get_latest_portfolio()
+    if not latest_path:
+        st.error("⚠️ No portfolio file found in /data (expected Portfolio_Positions_YYYY-MM-DD.csv or portfolio_data.csv).")
+        return pd.DataFrame()
+
+    st.sidebar.info(f"📁 Loading portfolio file: {Path(latest_path).name}")
     try:
-        df = pd.read_csv("data/portfolio_data.csv")
+        df = pd.read_csv(latest_path)
     except FileNotFoundError:
-        st.error("⚠️ portfolio_data.csv not found in /data folder.")
+        st.error(f"⚠️ Portfolio file not found: {latest_path}")
         return pd.DataFrame()
 
     for col in ["GainLoss%", "Value"]:
@@ -75,9 +98,9 @@ def get_latest(pattern):
             dated.append((m.group(1), f))
     return str(max(dated)[1]) if dated else None
 
-G1_PATH = get_latest("zacks_custom_screen_*Growth1*.csv")
-G2_PATH = get_latest("zacks_custom_screen_*Growth2*.csv")
-DD_PATH = get_latest("zacks_custom_screen_*Defensive*.csv")
+G1_PATH = get_latest("zacks_custom_screen_*Growth 1*.csv") or get_latest("zacks_custom_screen_*Growth1*.csv")
+G2_PATH = get_latest("zacks_custom_screen_*Growth 2*.csv") or get_latest("zacks_custom_screen_*Growth2*.csv")
+DD_PATH = get_latest("zacks_custom_screen_*Defensive Dividends*.csv") or get_latest("zacks_custom_screen_*Defensive*.csv")
 
 def safe_read(p):
     if not p:
@@ -220,7 +243,7 @@ with tabs[4]:
     """)
     st.info("Review each Rank 1–3 signal and update positions as needed.")
 
-# --- Tactical Summary ---
+# --- Weekly Tactical Summary ---
 with tabs[5]:
     st.subheader("🧩 Weekly Tactical Summary")
     st.text(intel["narrative"])
