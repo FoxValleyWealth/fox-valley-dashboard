@@ -1,5 +1,5 @@
 # ============================================
-# 🧭 FOX VALLEY INTELLIGENCE ENGINE v6.3R-A – COMMAND DECK (Adaptive Final Build)
+# 🧭 FOX VALLEY INTELLIGENCE ENGINE v6.3R-FIDELITY – FINAL COMMAND DECK
 # ============================================
 
 import streamlit as st
@@ -14,7 +14,7 @@ st.cache_resource.clear()
 
 # ---------- PAGE CONFIG ----------
 st.set_page_config(
-    page_title="Fox Valley Intelligence Engine v6.3R-A – Command Deck",
+    page_title="Fox Valley Intelligence Engine v6.3R-Fidelity – Command Deck",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -22,30 +22,28 @@ st.set_page_config(
 # ---------- DARK MODE ----------
 st.markdown("""
 <style>
-    body {background-color:#0e1117;color:#FAFAFA;}
-    [data-testid="stHeader"] {background-color:#0e1117;}
-    [data-testid="stSidebar"] {background-color:#111318;}
-    table {color:#FAFAFA;}
-    .rank1 {background-color:#004d00 !important;}
-    .rank2 {background-color:#665c00 !important;}
-    .rank3 {background-color:#663300 !important;}
+body {background-color:#0e1117;color:#FAFAFA;}
+[data-testid="stHeader"] {background-color:#0e1117;}
+[data-testid="stSidebar"] {background-color:#111318;}
+table {color:#FAFAFA;}
+.rank1 {background-color:#004d00 !important;}
+.rank2 {background-color:#665c00 !important;}
+.rank3 {background-color:#663300 !important;}
 </style>
 """, unsafe_allow_html=True)
 
 # ===============================================================
-#  AUTO-DETECT PORTFOLIO (supports all date and month formats)
+#  AUTO-DETECT PORTFOLIO FILE
 # ===============================================================
 def get_latest_portfolio():
     data_path = Path("data")
     if not data_path.exists():
         st.error("⚠️ /data directory not found.")
         return None
-
     files = list(data_path.glob("Portfolio*.csv"))
     if not files:
         st.warning("⚠️ No portfolio files detected in /data.")
         return None
-
     files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
     latest = files[0]
     st.sidebar.info(f"📁 Auto-detected portfolio file: {latest.name}")
@@ -62,25 +60,33 @@ def load_portfolio():
         st.error(f"⚠️ Could not read {latest_path}: {e}")
         return pd.DataFrame()
 
-    # Normalize common variations
-    tcols = [c for c in df.columns if "ticker" in c.lower() or "symbol" in c.lower() or "stock" in c.lower()]
-    if tcols:
-        df.rename(columns={tcols[0]: "Ticker"}, inplace=True)
+    # --- Clean Fidelity structure ---
+    drop_cols = [c for c in df.columns if "account" in c.lower()]
+    df.drop(columns=drop_cols, inplace=True, errors="ignore")
 
-    for col in ["GainLoss%", "Value"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+    # Normalize column names
+    if "Symbol" in df.columns:
+        df.rename(columns={"Symbol": "Ticker"}, inplace=True)
+    if "Current Value" in df.columns:
+        df.rename(columns={"Current Value": "Value"}, inplace=True)
+
+    # Coerce numeric
+    for c in ["Value"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c].astype(str).str.replace("[^0-9.\-]", "", regex=True), errors="coerce")
+
+    # Remove blank / footer rows
+    df = df.dropna(subset=["Ticker", "Value"], how="any")
+
     return df
 
 portfolio = load_portfolio()
 
 # ---------- CALCULATE TOTALS ----------
 if not portfolio.empty and "Value" in portfolio.columns:
-    cash_mask = portfolio["Ticker"].astype(str).str.contains("CASH|MONEY|MMKT|USD", case=False, na=False) if "Ticker" in portfolio.columns else []
-    cash_value = float(portfolio.loc[cash_mask, "Value"].sum()) if len(cash_mask) else 0.0
+    cash_mask = portfolio["Ticker"].astype(str).str.contains("SPAXX|CASH|USD|MONEY", case=False, na=False)
+    cash_value = float(portfolio.loc[cash_mask, "Value"].sum())
     total_value = float(portfolio["Value"].sum())
-    if cash_value == 0 and "Cash" in portfolio.columns:
-        cash_value = float(portfolio["Cash"].sum())
 else:
     total_value, cash_value = 0.0, 0.0
 
