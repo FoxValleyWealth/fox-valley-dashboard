@@ -1,5 +1,5 @@
 # ============================================
-# 🧭 FOX VALLEY INTELLIGENCE ENGINE v6.3R – COMMAND DECK (Final Integrated Build)
+# 🧭 FOX VALLEY INTELLIGENCE ENGINE v6.3R-A – COMMAND DECK (Adaptive Final Build)
 # ============================================
 
 import streamlit as st
@@ -9,13 +9,12 @@ from pathlib import Path
 import re
 import datetime
 
-# --- CLEAR CACHE AT LAUNCH (one-time)
 st.cache_data.clear()
 st.cache_resource.clear()
 
 # ---------- PAGE CONFIG ----------
 st.set_page_config(
-    page_title="Fox Valley Intelligence Engine v6.3R – Command Deck",
+    page_title="Fox Valley Intelligence Engine v6.3R-A – Command Deck",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -37,10 +36,6 @@ st.markdown("""
 #  AUTO-DETECT PORTFOLIO (supports all date and month formats)
 # ===============================================================
 def get_latest_portfolio():
-    """
-    Detect the most recent portfolio CSV in /data using flexible matching.
-    Accepts any filename beginning with 'Portfolio' (e.g. Nov, November, YYYY-MM-DD).
-    """
     data_path = Path("data")
     if not data_path.exists():
         st.error("⚠️ /data directory not found.")
@@ -51,7 +46,6 @@ def get_latest_portfolio():
         st.warning("⚠️ No portfolio files detected in /data.")
         return None
 
-    # Sort by last modified date (most recent first)
     files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
     latest = files[0]
     st.sidebar.info(f"📁 Auto-detected portfolio file: {latest.name}")
@@ -61,14 +55,17 @@ def get_latest_portfolio():
 def load_portfolio():
     latest_path = get_latest_portfolio()
     if not latest_path:
-        st.error("⚠️ No portfolio file found.")
         return pd.DataFrame()
-
     try:
         df = pd.read_csv(latest_path)
     except Exception as e:
-        st.error(f"⚠️ Failed to load {latest_path}: {e}")
+        st.error(f"⚠️ Could not read {latest_path}: {e}")
         return pd.DataFrame()
+
+    # Normalize common variations
+    tcols = [c for c in df.columns if "ticker" in c.lower() or "symbol" in c.lower() or "stock" in c.lower()]
+    if tcols:
+        df.rename(columns={tcols[0]: "Ticker"}, inplace=True)
 
     for col in ["GainLoss%", "Value"]:
         if col in df.columns:
@@ -78,9 +75,9 @@ def load_portfolio():
 portfolio = load_portfolio()
 
 # ---------- CALCULATE TOTALS ----------
-if not portfolio.empty:
-    cash_mask = portfolio["Ticker"].astype(str).str.contains("CASH|MONEY|MMKT|USD", case=False, na=False)
-    cash_value = float(portfolio.loc[cash_mask, "Value"].sum())
+if not portfolio.empty and "Value" in portfolio.columns:
+    cash_mask = portfolio["Ticker"].astype(str).str.contains("CASH|MONEY|MMKT|USD", case=False, na=False) if "Ticker" in portfolio.columns else []
+    cash_value = float(portfolio.loc[cash_mask, "Value"].sum()) if len(cash_mask) else 0.0
     total_value = float(portfolio["Value"].sum())
     if cash_value == 0 and "Cash" in portfolio.columns:
         cash_value = float(portfolio["Cash"].sum())
@@ -102,7 +99,6 @@ def get_latest(pattern):
             dated.append((m.group(1), f))
     return str(max(dated)[1]) if dated else None
 
-# Accepts both underscored and spaced filenames
 G1_PATH = get_latest("zacks_custom_screen_*Growth1*.csv") or get_latest("zacks_custom_screen_*Growth 1*.csv")
 G2_PATH = get_latest("zacks_custom_screen_*Growth2*.csv") or get_latest("zacks_custom_screen_*Growth 2*.csv")
 DD_PATH = get_latest("zacks_custom_screen_*Defensive*.csv") or get_latest("zacks_custom_screen_*Defensive Dividends*.csv")
@@ -125,7 +121,7 @@ else:
     st.sidebar.error("⚠️ No Zacks CSVs found in /data.")
 
 # ===============================================================
-#  NORMALIZE AND CROSS-MATCH
+#  NORMALIZE + CROSS-MATCH
 # ===============================================================
 def normalize(df):
     if df.empty:
@@ -141,7 +137,7 @@ def normalize(df):
     return df[keep].copy()
 
 def cross_match(zdf, pf):
-    if zdf.empty or pf.empty:
+    if zdf.empty or pf.empty or "Ticker" not in pf.columns:
         return pd.DataFrame()
     pf_t = pf[["Ticker"]].astype(str)
     zdf["Ticker"] = zdf["Ticker"].astype(str)
@@ -157,7 +153,7 @@ g1, g2, dd = normalize(g1), normalize(g2), normalize(dd)
 # ===============================================================
 def build_intel(pf, g1, g2, dd, cash_val, total_val):
     combined = pd.concat([g1, g2, dd], ignore_index=True).drop_duplicates(subset=["Ticker"])
-    held = set(pf["Ticker"].astype(str)) if not pf.empty else set()
+    held = set(pf["Ticker"].astype(str)) if not pf.empty and "Ticker" in pf.columns else set()
     rank1 = combined[combined["Zacks Rank"].astype(str) == "1"] if "Zacks Rank" in combined else pd.DataFrame()
     new1 = rank1[~rank1["Ticker"].isin(held)]
     held1 = rank1[rank1["Ticker"].isin(held)]
@@ -175,7 +171,7 @@ def build_intel(pf, g1, g2, dd, cash_val, total_val):
 intel = build_intel(portfolio, g1, g2, dd, cash_value, total_value)
 
 # ===============================================================
-#  MAIN INTERFACE — 7 TABS
+#  MAIN INTERFACE
 # ===============================================================
 tabs = st.tabs([
     "💼 Portfolio Overview",
@@ -192,7 +188,7 @@ with tabs[0]:
     st.metric("Total Account Value", f"${total_value:,.2f}")
     st.metric("Cash Available to Trade", f"${cash_value:,.2f}")
     st.dataframe(portfolio, use_container_width=True)
-    if not portfolio.empty:
+    if not portfolio.empty and "Value" in portfolio.columns:
         fig = px.pie(portfolio, values="Value", names="Ticker",
                      title="Portfolio Allocation", hole=0.3)
         st.plotly_chart(fig, use_container_width=True)
