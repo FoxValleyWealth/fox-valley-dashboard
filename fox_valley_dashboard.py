@@ -8,6 +8,8 @@ import plotly.express as px
 from pathlib import Path
 import re
 import datetime
+import streamlit as st
+st.cache_data.clear()
 
 # ---------- PAGE CONFIG ----------
 st.set_page_config(
