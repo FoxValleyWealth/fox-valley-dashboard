@@ -9,6 +9,11 @@ from pathlib import Path
 import re
 import datetime
 
+# --- ONE-TIME CACHE CLEAR TO REMOVE OLD DATA ---
+# (This will purge Streamlit’s cache at launch, ensuring fresh portfolio values)
+st.cache_data.clear()
+st.cache_resource.clear()
+
 # ---------- PAGE CONFIG ----------
 st.set_page_config(
     page_title="Fox Valley Intelligence Engine v6.3R – Command Deck",
@@ -38,7 +43,6 @@ def load_portfolio():
         st.error("⚠️ portfolio_data.csv not found in /data folder.")
         return pd.DataFrame()
 
-    # Convert key numeric fields safely
     for col in ["GainLoss%", "Value"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -46,21 +50,18 @@ def load_portfolio():
 
 portfolio = load_portfolio()
 
-# ---------- PORTFOLIO TOTALS (DYNAMIC CALCULATION) ----------
+# ---------- PORTFOLIO TOTALS (DYNAMIC) ----------
 if not portfolio.empty:
     cash_mask = portfolio["Ticker"].astype(str).str.contains(
         "CASH|MONEY|MMKT|USD", case=False, na=False
     )
     cash_value = float(portfolio.loc[cash_mask, "Value"].sum())
     total_value = float(portfolio["Value"].sum())
-
-    # Fallback if "Cash" column exists instead of ticker row
     if cash_value == 0 and "Cash" in portfolio.columns:
         cash_value = float(portfolio["Cash"].sum())
 else:
     total_value, cash_value = 0.0, 0.0
 
-# Sidebar confirmation
 st.sidebar.info(f"💰 Portfolio Loaded — Total ${total_value:,.2f} | Cash ${cash_value:,.2f}")
 
 # ---------- AUTO-DETECT ZACKS FILES ----------
@@ -129,7 +130,6 @@ def build_intel(pf, g1, g2, dd, cash_val, total_val):
     new1 = rank1[~rank1["Ticker"].isin(held)]
     held1 = rank1[rank1["Ticker"].isin(held)]
     cash_pct = (cash_val / total_val) * 100 if total_val > 0 else 0
-
     msg = [
         f"Fox Valley Daily Tactical Overlay",
         f"• Portfolio Value: ${total_val:,.2f}",
