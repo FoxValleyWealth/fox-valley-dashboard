@@ -140,12 +140,29 @@ def cross_match(zdf, pf):
     return m
 
 def build_intel(pf, g1, g2, dd, cash_val, total_val):
-    combined = pd.concat([g1, g2, dd], ignore_index=True).drop_duplicates(subset=["Ticker"], errors="ignore")
+    # Filter out empty or invalid dataframes
+    valid = []
+    for df in [g1, g2, dd]:
+        if not df.empty and "Ticker" in df.columns:
+            valid.append(df.reset_index(drop=True).copy())
+
+    # If nothing valid, return empty intelligence safely
+    if not valid:
+        return {"narrative": "No valid Zacks data detected.", "new": pd.DataFrame(), "held": pd.DataFrame()}
+
+    # Safe concatenation
+    combined = pd.concat(valid, ignore_index=True)
+    if "Ticker" not in combined.columns:
+        combined["Ticker"] = ""
+
+    combined.drop_duplicates(subset=["Ticker"], inplace=True, errors="ignore")
+
     held = set(pf["Ticker"].astype(str)) if "Ticker" in pf.columns else set()
-    rank1 = combined[combined["Zacks Rank"].astype(str) == "1"] if "Zacks Rank" in combined else pd.DataFrame()
+    rank1 = combined[combined.get("Zacks Rank", pd.Series(dtype=str)).astype(str) == "1"]
     new1 = rank1[~rank1["Ticker"].isin(held)]
     held1 = rank1[rank1["Ticker"].isin(held)]
     cash_pct = (cash_val / total_val) * 100 if total_val > 0 else 0
+
     msg = [
         f"Fox Valley Tactical Summary",
         f"• Portfolio Value: ${total_val:,.2f}",
@@ -155,6 +172,7 @@ def build_intel(pf, g1, g2, dd, cash_val, total_val):
         f"• Held #1 Positions: {len(held1)}"
     ]
     return {"narrative": "\n".join(msg), "new": new1, "held": held1}
+
 
 intel = build_intel(portfolio, g1, g2, dd, cash_value, total_value)
 
