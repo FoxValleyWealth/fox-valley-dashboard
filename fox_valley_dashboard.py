@@ -144,21 +144,35 @@ def build_intel(pf, g1, g2, dd, cash_val, total_val):
     valid = []
     for df in [g1, g2, dd]:
         if not df.empty and "Ticker" in df.columns:
-            valid.append(df.reset_index(drop=True).copy())
+            df = df.reset_index(drop=True).copy()
+            valid.append(df)
 
     # If nothing valid, return empty intelligence safely
     if not valid:
         return {"narrative": "No valid Zacks data detected.", "new": pd.DataFrame(), "held": pd.DataFrame()}
 
-    # Safe concatenation
+    # Safe concatenation and duplicate cleanup
     combined = pd.concat(valid, ignore_index=True)
+
+    # Guarantee presence of 'Ticker' column
     if "Ticker" not in combined.columns:
         combined["Ticker"] = ""
 
-    combined.drop_duplicates(subset=["Ticker"], inplace=True, errors="ignore")
+    # Drop duplicates safely (without unsupported 'errors' arg)
+    try:
+        combined = combined.drop_duplicates(subset=["Ticker"], inplace=False)
+    except Exception:
+        combined = combined.loc[:, ~combined.columns.duplicated()]
 
+    # Build tactical intelligence
     held = set(pf["Ticker"].astype(str)) if "Ticker" in pf.columns else set()
-    rank1 = combined[combined.get("Zacks Rank", pd.Series(dtype=str)).astype(str) == "1"]
+    rank_col = "Zacks Rank" if "Zacks Rank" in combined.columns else None
+
+    if rank_col:
+        rank1 = combined[combined[rank_col].astype(str) == "1"]
+    else:
+        rank1 = pd.DataFrame(columns=["Ticker"])
+
     new1 = rank1[~rank1["Ticker"].isin(held)]
     held1 = rank1[rank1["Ticker"].isin(held)]
     cash_pct = (cash_val / total_val) * 100 if total_val > 0 else 0
@@ -171,6 +185,7 @@ def build_intel(pf, g1, g2, dd, cash_val, total_val):
         f"• New #1 Candidates: {len(new1)}",
         f"• Held #1 Positions: {len(held1)}"
     ]
+
     return {"narrative": "\n".join(msg), "new": new1, "held": held1}
 
 
