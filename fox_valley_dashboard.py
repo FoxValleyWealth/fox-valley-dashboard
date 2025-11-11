@@ -21,14 +21,14 @@ shutil.move(str(old), ARCHIVE_DIR / old.name)
 st.sidebar.info(f"Archived: {old.name}")
 
 auto_archive("Portfolio_Positions_*.csv")
-for pattern in ["zacks_custom_screen_Growth.csv", "zacks_custom_screen_Defensive.csv"]:
+for pattern in ["zacks_custom_screen_Growth 1.csv", "zacks_custom_screen_Growth 2.csv", "zacks_custom_screen_Defensive.csv"]:
 auto_archive(pattern)
 
 # ---------- UNIVERSAL CSV LOADER WITH HEADER DETECTION ----------
 def load_latest(pattern):
 files = sorted(DATA_DIR.glob(pattern), key=lambda f: f.stat().st_mtime)
 if not files:
-return None
+return pd.DataFrame(), ""
 f = files[-1]
 text = f.read_text(errors="ignore")
 lines = text.splitlines()
@@ -46,10 +46,10 @@ pass
 return df, f.name
 
 # ---------- LOAD DATA ----------
-portfolio, pf_file = load_latest("Portfolio_Positions_*.csv") or (pd.DataFrame(), "")
-zacks_growth1, z1_file = load_latest("zacks_custom_screen_Growth 1.csv") or (pd.DataFrame(), "")
-zacks_growth2, z2_file = load_latest("zacks_custom_screen_Growth 2.csv") or (pd.DataFrame(), "")
-zacks_div, zd_file = load_latest("zacks_custom_screen_Defensive.csv") or (pd.DataFrame(), "")
+portfolio, pf_file = load_latest("Portfolio_Positions_*.csv")
+zacks_growth1, z1_file = load_latest("zacks_custom_screen_Growth 1.csv")
+zacks_growth2, z2_file = load_latest("zacks_custom_screen_Growth 2.csv")
+zacks_div, zd_file = load_latest("zacks_custom_screen_Defensive.csv")
 
 # ---------- COLUMN/TYPE DIAGNOSTICS ----------
 def find_cols(df, keys, stcontainer):
@@ -99,13 +99,13 @@ st.error("No Zacks Growth Data Found.")
 with tab3:
 st.header("Tactical Matrix: Portfolio & Zacks Cross-Match")
 if not portfolio.empty and not zacks_growth1.empty:
-# Find possible ticker columns dynamically
-pf_ticker_col = find_cols(portfolio, ["symbol", "ticker"], st)[0]
-z1_ticker_col = find_cols(zacks_growth1, ["symbol", "ticker"], st)[0]
-if "zacks" in " ".join(zacks_growth1.columns).lower():
+pf_ticker_cols = find_cols(portfolio, ["symbol", "ticker"], st)
+z1_ticker_cols = find_cols(zacks_growth1, ["symbol", "ticker"], st)
+if pf_ticker_cols and z1_ticker_cols:
+pf_ticker_col = pf_ticker_cols[0]
+z1_ticker_col = z1_ticker_cols[0]
 zacks_rank_cols = [c for c in zacks_growth1.columns if "zacks" in c.lower() and "rank" in c.lower()]
 if zacks_rank_cols:
-# Cross-match Rank = 1
 merged = portfolio.merge(
 zacks_growth1[zacks_growth1[zacks_rank_cols[0]] == 1],
 left_on=pf_ticker_col, right_on=z1_ticker_col, how="inner", suffixes=('_pf', '_zacks')
@@ -115,7 +115,7 @@ st.dataframe(merged)
 else:
 st.warning("No Zacks Rank column found in Growth 1 file.")
 else:
-st.warning("No Zacks Rank detected in Growth 1 columns.")
+st.warning("Cannot find matching ticker columns.")
 else:
 st.info("Need both Portfolio and Zacks Growth 1 data to cross-match holdings.")
 
@@ -127,5 +127,14 @@ st.markdown("""
 - Tactical Matrix: Cross-matches active holdings with Zacks Rank = 1
 - Expansion: Add charts, alerts, and new signals as needed
 """)
-
 ```
+
+How to use:
+- Save this code in your main Python file (for example, `fox_valley_dashboard.py`).
+- Your data folder must be named `data`, and the archive folder `archive` will be created automatically.
+- Your CSV files should use the same naming pattern as before:
+- Portfolio: `Portfolio_Positions_*.csv`
+- Zacks: `zacks_custom_screen_Growth 1.csv`, `zacks_custom_screen_Growth 2.csv`, `zacks_custom_screen_Defensive.csv`
+- Run your app with:
+```
+streamlit run fox_valley_dashboard.py
