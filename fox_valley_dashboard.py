@@ -107,11 +107,62 @@ def load_csv(path):
         df["Current Value"] = df["Shares"] * df["Current Price"]
 
     return df, []
+# ================================================================
+# v7.4R-1 HOTFIX — Ticker Auto-Detection & Normalization Patch
+# ================================================================
+def normalize_ticker_column(df):
+    if df.empty:
+        return df
+    df = df.copy()
+
+    # 1 — If 'Ticker' already exists
+    if "Ticker" in df.columns:
+        return df
+
+    # 2 — Fidelity often uses 'Symbol'
+    if "Symbol" in df.columns:
+        df.rename(columns={"Symbol": "Ticker"}, inplace=True)
+        return df
+
+    # 3 — Extract ticker from Description (first token)
+    if "Description" in df.columns:
+        df["Ticker"] = df["Description"].astype(str).str.split().str[0]
+        return df
+
+    # 4 — Fallback placeholder tickers
+    df["Ticker"] = [f"UNK{i+1}" for i in range(len(df))]
+    return df
 
 # ================================================================
 # LOAD ALL DATA
 # ================================================================
-portfolio_df, pmsg = load_csv(PORTFOLIO_FILE) if PORTFOLIO_FILE else (pd.DataFrame(), ["Missing portfolio data"])
+portfolio_df, pmsg = load_csv(PORTFOLIO_FILE) if PORTFOLIO_FILE else (pd.DataFrame(), ["Portfolio file not found."])
+portfolio_df = normalize_ticker_column(portfolio_df)
+# v7.4R-1 HOTFIX — Ticker Auto-Detection & Normalization Patch
+# ================================================================
+def normalize_ticker_column(df):
+    if df.empty:
+        return df
+    df = df.copy()
+
+    # 1 — If 'Ticker' already exists
+    if "Ticker" in df.columns:
+        return df
+
+    # 2 — Fidelity often uses 'Symbol'
+    if "Symbol" in df.columns:
+        df.rename(columns={"Symbol": "Ticker"}, inplace=True)
+        return df
+
+    # 3 — Extract ticker from Description (first token)
+    if "Description" in df.columns:
+        df["Ticker"] = df["Description"].astype(str).str.split().str[0]
+        return df
+
+    # 4 — Fallback placeholder tickers
+    df["Ticker"] = [f"UNK{i+1}" for i in range(len(df))]
+    return df
+
 g1_df, _ = load_csv(ZACKS_G1_FILE) if ZACKS_G1_FILE else (pd.DataFrame(), [])
 g2_df, _ = load_csv(ZACKS_G2_FILE) if ZACKS_G2_FILE else (pd.DataFrame(), [])
 dd_df, _ = load_csv(ZACKS_DD_FILE) if ZACKS_DD_FILE else (pd.DataFrame(), [])
