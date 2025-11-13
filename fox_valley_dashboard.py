@@ -381,7 +381,7 @@ ALLOCATION_MAP = {
     "NVDA": "Growth", "AMZN": "Growth", "COMM": "Growth", "RDDT": "Growth", "NBIX": "Growth",
     "NEM": "Defensive", "ALL": "Defensive", "HSBC": "Defensive", "PRK": "Defensive", "NVT": "Defensive", "ARMN": "Defensive", "RGLD": "Defensive",
     "AU": "Core", "IBKR": "Core", "CNQ": "Core", "TPC": "Core", "NTB": "Core",
-    "LCII": "Core", "CUBI": "Core", "CALX": "Core", "KAR": "Core", "DINO": "Core", "CBOE": "Core",
+    "LCII": "Core", "CUBI": "Core", "CALX": "Core", "KAR": "Core", "DINO": "Core", "CBOE": "Core", "GRND": "Growth",
 }
 
 def apply_allocation(df):
