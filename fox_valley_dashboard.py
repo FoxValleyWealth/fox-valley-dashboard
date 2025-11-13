@@ -567,6 +567,103 @@ Reserved expansion section for:
 
 These hooks allow v7.3R to expand to v7.4R+ without rewriting the core.
 """
+# ================================================
+# SEGMENT 1E — ANALYTICS CLUSTER (HEAT MAPS)
+# v7.3R-4.4
+# ================================================
+
+import plotly.express as px
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+st.markdown("## 🔥 Analytics Cluster — Heat Map Suite")
+
+# ------------------------------------------------
+# 1️⃣ PORTFOLIO WEIGHT HEAT MAP (Plotly)
+# ------------------------------------------------
+if portfolio_df is not None and not portfolio_df.empty:
+    weight_df = portfolio_df.copy()
+    if "Current Value" in weight_df.columns:
+        weight_df["Weight %"] = weight_df["Current Value"] / weight_df["Current Value"].sum() * 100
+
+        fig_weight = px.imshow(
+            [weight_df["Weight %"]],
+            labels=dict(color="Weight %"),
+            x=weight_df["Ticker"],
+            y=["Weight"],
+            color_continuous_scale="Blues"
+        )
+        fig_weight.update_layout(height=300)
+
+        with st.expander("📘 Portfolio Weight Heat Map"):
+            st.plotly_chart(fig_weight, use_container_width=True)
+    else:
+        st.warning("Portfolio file missing 'Current Value' column — cannot build weight map.")
+
+# ------------------------------------------------
+# 2️⃣ GAIN / LOSS % HEAT MAP (Plotly)
+# ------------------------------------------------
+if portfolio_df is not None and not portfolio_df.empty:
+    if "Gain/Loss %" in portfolio_df.columns:
+        fig_gain = px.imshow(
+            [portfolio_df["Gain/Loss %"]],
+            labels=dict(color="Gain/Loss %"),
+            x=portfolio_df["Ticker"],
+            y=["Gain/Loss %"],
+            color_continuous_scale="RdYlGn"
+        )
+        fig_gain.update_layout(height=300)
+
+        with st.expander("📈 Gain/Loss % Heat Map"):
+            st.plotly_chart(fig_gain, use_container_width=True)
+    else:
+        st.warning("Portfolio file missing 'Gain/Loss %' column — cannot build gain/loss map.")
+
+# ------------------------------------------------
+# 3️⃣ ZACKS COMPOSITE SCORE HEAT MAP (Plotly)
+# ------------------------------------------------
+if not scored_candidates.empty:
+    if "CompositeScore" in scored_candidates.columns:
+        comp_df = scored_candidates[["Ticker", "CompositeScore"]].reset_index(drop=True)
+
+        fig_comp = px.imshow(
+            [comp_df["CompositeScore"]],
+            labels=dict(color="Composite Score"),
+            x=comp_df["Ticker"],
+            y=["Composite Score"],
+            color_continuous_scale="Viridis"
+        )
+        fig_comp.update_layout(height=300)
+
+        with st.expander("💡 Zacks Composite Score Heat Map"):
+            st.plotly_chart(fig_comp, use_container_width=True)
+    else:
+        st.warning("CompositeScore column missing — cannot render Zacks heat map.")
+
+# ------------------------------------------------
+# 4️⃣ CORRELATION MATRIX HEAT MAP (Seaborn)
+# ------------------------------------------------
+if portfolio_df is not None and not portfolio_df.empty:
+
+    # build returns matrix if possible
+    numeric_cols = portfolio_df.select_dtypes(include=["float", "int"]).columns
+
+    if len(numeric_cols) > 1:
+        corr = portfolio_df[numeric_cols].corr()
+
+        with st.expander("🧩 Correlation Matrix Heat Map"):
+            fig, ax = plt.subplots(figsize=(10, 7))
+            sns.heatmap(
+                corr,
+                cmap="coolwarm",
+                annot=True,
+                fmt=".2f",
+                linewidths=0.5,
+                ax=ax
+            )
+            st.pyplot(fig)
+    else:
+        st.warning("Not enough numeric data to compute correlation heat map.")
 
 # ------------------------------------------------
 # END OF FILE
