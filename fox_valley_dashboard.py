@@ -365,6 +365,11 @@ def render_table(df, label=None, highlight=False):
 # ------------------------------------------------
 portfolio_df, portfolio_filename = load_portfolio()
 
+# --- CLEAN NUMERIC COLUMNS (Fidelity CSV) ---
+if portfolio_df is not None:
+    portfolio_df = portfolio_df.replace(r'[\$,()]', '', regex=True).replace(r'\((.*?)\)', r'-\1', regex=True)
+    portfolio_df = portfolio_df.apply(lambda col: pd.to_numeric(col, errors='ignore'))
+
 # Calculate core metrics
 total_value, cash_value, avg_gain = compute_portfolio_metrics(portfolio_df)
 
