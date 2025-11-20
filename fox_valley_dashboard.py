@@ -1,15 +1,49 @@
+# ============================================================
 # 🧭 FOX VALLEY INTELLIGENCE ENGINE — COMMAND DECK
-# v7.3R-5.2 — Stable Unified Build (Synthetic Gain Engine Fully Integrated)
+# v7.3R-5.3 — Engine-Integrated Build (Modular Architecture)
+# ============================================================
 
-import os
+import streamlit as st
 import pandas as pd
 import numpy as np
-import streamlit as st
 from datetime import datetime
 import plotly.express as px
 import seaborn as sns
 import matplotlib.pyplot as plt
 
+# ------------------------------------------------------------
+# Engine Module Imports
+# ------------------------------------------------------------
+from modules.portfolio_engine import (
+    load_portfolio,
+    compute_portfolio_metrics,
+    load_archive_portfolio_history
+)
+
+from modules.zacks_engine import (
+    load_zacks_files_auto,
+    merge_zacks_screens,
+    score_zacks_candidates,
+    get_top_n,
+    highlight_rank_1
+)
+
+from modules.dashboard_engine import (
+    attach_trailing_stops,
+)
+
+from modules.diagnostics_engine import (
+    log_event,
+)
+
+from modules.ui_bridge import (
+    render_metric_cards,
+    render_diagnostics,
+    render_tactical_panel,
+    render_event_log,
+    show_dataframe,
+    render_footer
+)
 # ------------------------------------------------
 # STREAMLIT CONFIGURATION
 # ------------------------------------------------
