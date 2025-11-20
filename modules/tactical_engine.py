@@ -1,7 +1,7 @@
 # ============================================================
 # 🛡 FOX VALLEY INTELLIGENCE ENGINE — TACTICAL ENGINE MODULE
-# v7.3R-6.0 — Tactical Intelligence Engine
-# Scoring, Tags, Momentum Flags, Position Actions
+# v7.3R-6.1 — Tactical + Persistence Intelligence Engine
+# Adds Rank Stability, Trust Factor, and Final Tactical Score
 # ============================================================
 
 import streamlit as st
@@ -10,27 +10,59 @@ import numpy as np
 from datetime import datetime
 
 # ------------------------------------------------------------
-# Tactical Scoring Model
+# Tactical Scoring (Existing Core Risk/Reward Model)
 # ------------------------------------------------------------
 def compute_tactical_score(row):
     score = 0
-
-    # Base Scoring (Composite Score influence)
     score += min(row.get("CompositeScore", 0), 50)
-
-    # Price Momentum Influence
     score += min(row.get("PriceChange5d", 0), 20)
 
-    # Rank Stability (bonus if rank stays =1)
     if str(row.get("Zacks Rank", "")).strip() == "1":
-        score += 15  # Strongest signal
+        score += 15
 
-    # Position Risk Adjustment
     volatility = row.get("Volatility30d", 20)
-    risk_penalty = min(volatility, 20) * 0.5
-    score -= risk_penalty
+    score -= min(volatility, 20) * 0.5
 
     return max(0, min(score, 100))
+
+
+# ------------------------------------------------------------
+# 📅 Rank Persistence Engine (NEW in Phase 6.1)
+# ------------------------------------------------------------
+def compute_persistence(row):
+    days = row.get("PersistenceDays", 0)
+    try:
+        return int(days)
+    except:
+        return 0
+
+
+def stability_class(days):
+    if days >= 10:
+        return "🛡 Durable"
+    elif days >= 5:
+        return "🌱 Emerging"
+    else:
+        return "⚠ Unstable"
+
+
+def trust_factor(days, score):
+    if days >= 10:
+        return min(score * 1.2, 100)
+    elif days >= 5:
+        return min(score * 1.1, 100)
+    else:
+        return score
+
+
+# ------------------------------------------------------------
+# 🔎 Final Tactical Score with Persistence & Trust Multiplier
+# ------------------------------------------------------------
+def compute_final_tactical_score(row):
+    base_score = compute_tactical_score(row)
+    days = compute_persistence(row)
+    adjusted = trust_factor(days, base_score)
+    return round(adjusted, 2)
 
 
 # ------------------------------------------------------------
@@ -50,14 +82,19 @@ def tactical_tag(score):
 
 
 # ------------------------------------------------------------
-# Tactical Engine — Apply Scoring & Tagging
+# Apply Tactical + Persistence Intelligence
 # ------------------------------------------------------------
 def apply_tactical_analysis(df):
     if df is None or df.empty:
         return df
 
+    df["PersistenceDays"] = df.apply(compute_persistence, axis=1)
+    df["StabilityClass"] = df["PersistenceDays"].apply(stability_class)
+
     df["TacticalScore"] = df.apply(compute_tactical_score, axis=1)
-    df["TacticalTag"] = df["TacticalScore"].apply(tactical_tag)
+    df["FinalTacticalScore"] = df.apply(compute_final_tactical_score, axis=1)
+    df["TacticalTag"] = df["FinalTacticalScore"].apply(tactical_tag)
+
     df["LastUpdated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return df
 
