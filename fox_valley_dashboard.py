@@ -1,5 +1,5 @@
 # 🧭 FOX VALLEY INTELLIGENCE ENGINE — COMMAND DECK
-# v7.3R-5.0 — Stable Unified Build (Live + Historical)
+# v7.3R-5.1 — Stable Unified Build (Avg Gain/Loss Engine Upgrade)
 
 import os
 import pandas as pd
@@ -272,34 +272,58 @@ def get_top_n(df, n):
 # ====================================================
 def compute_portfolio_metrics(df):
     """
-    Compute total account value, cash value, and average gain.
-    Compatible with Fidelity export columns.
+    Compute:
+    - Total account value
+    - Cash value
+    - Value-weighted Avg Gain/Loss %
+
+    This upgraded version is compatible with multiple Fidelity-style
+    gain/loss column names and is architected for downstream use by:
+    - Tactical Trend Analyzer
+    - Risk Posture / Intelligence Brief
     """
     if df is None or df.empty:
         return 0.0, 0.0, None
 
     try:
-        total_value = pd.to_numeric(
-            df["Current Value"], errors="coerce"
-        ).fillna(0).sum()
+        # --- Total Portfolio Value ---
+        current_value_series = pd.to_numeric(
+            df.get("Current Value", pd.Series(dtype=float)), errors="coerce"
+        ).fillna(0)
+        total_value = current_value_series.sum()
 
-        # Gain % column fallback
-        gain_col = None
-        for cand in ["Gain/Loss %", "Total Gain/Loss Percent", "Today's Gain/Loss Percent"]:
-            if cand in df.columns:
-                gain_col = cand
+        # --- Detect & Compute Gain/Loss % Safely ---
+        gain_loss_candidates = [
+            "Gain/Loss %",
+            "Total Gain/Loss Percent",
+            "Today's Gain/Loss Percent",
+            "GainLossPct",
+            "% Gain/Loss",
+            "%Chg",
+        ]
+
+        detected_gain_column = None
+        for col in gain_loss_candidates:
+            if col in df.columns:
+                detected_gain_column = col
                 break
 
-        if gain_col:
-            avg_gain = pd.to_numeric(
-                df[gain_col], errors="coerce"
-            ).replace([np.inf, -np.inf], np.nan).dropna().mean()
-            if pd.isna(avg_gain):
-                avg_gain = None
-        else:
-            avg_gain = None
+        avg_gain = None
+        if detected_gain_column and total_value > 0:
+            numeric_gain = pd.to_numeric(
+                df[detected_gain_column], errors="coerce"
+            ).fillna(0)
 
-        # Cash row detection by Ticker == "cash"
+            # Value-weighted contribution
+            weighted_contribution = numeric_gain * current_value_series
+            total_weighted = weighted_contribution.sum()
+
+            if total_value > 0:
+                avg_gain = total_weighted / total_value
+            else:
+                avg_gain = None
+
+        # --- Cash Value Detection (Ticker == 'cash') ---
         cash_value = 0.0
         if "Ticker" in df.columns:
             cash_rows = df[df["Ticker"].astype(str).str.lower().eq("cash")]
@@ -309,6 +333,7 @@ def compute_portfolio_metrics(df):
                 ).fillna(0).sum()
 
         return float(total_value), float(cash_value), avg_gain
+
     except Exception:
         return 0.0, 0.0, None
 
@@ -558,7 +583,7 @@ available_cash = manual_cash if manual_cash > 0 else cash_value
 st.markdown(
     """
 # 🧭 Fox Valley Intelligence Engine — Enterprise Command Deck  
-**v7.3R-5.0** | Real-Time + Historical Diagnostics Online  
+**v7.3R-5.1** | Real-Time + Historical Diagnostics Online  
 """
 )
 
@@ -858,5 +883,5 @@ except Exception as e:
     st.warning(f"[HISTORICAL] Zacks history engine encountered an issue: {e}")
 
 # ====================================================
-# END OF FILE — v7.3R-5.0
+# END OF FILE — v7.3R-5.1
 # ====================================================
